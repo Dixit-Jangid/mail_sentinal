@@ -1,12 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { RotateCw, ZoomIn, ZoomOut, Crosshair, MapPin, Loader } from "lucide-react";
+import { RotateCw, ZoomIn, ZoomOut, Crosshair, MapPin, Loader, Shield, ShieldAlert } from "lucide-react";
 
-// ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Open-source Earth texture URLs (NASA Blue Marble / Three.js CDN)
-// Primary: Three.js official repo CDN (MIT-compatible)
-// Fallback: NASA Visible Earth
-// ──────────────────────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const EARTH_TEXTURE_URLS = [
   "https://unpkg.com/three@0.160.1/examples/textures/planets/earth_atmos_2048.jpg",
   "https://raw.githubusercontent.com/mrdoob/three.js/r160/examples/textures/planets/earth_atmos_2048.jpg",
@@ -28,8 +26,12 @@ const CLOUD_TEXTURE_URLS = [
   "https://raw.githubusercontent.com/mrdoob/three.js/r160/examples/textures/planets/earth_clouds_1024.png",
 ];
 
+// Arc colour palette per hop index
+const ARC_COLORS = ["#ff4444", "#ffaa00", "#00e5ff", "#00ff88", "#aa44ff", "#ff6699", "#44aaff"];
+const PARTICLE_COLORS = ["#ff8888", "#ffcc66", "#66eeff", "#66ffbb", "#cc88ff", "#ff99bb", "#88ccff"];
+
 /**
- * Converts geographic Latitude and Longitude to 3D Cartesian coordinates on a sphere.
+ * Converts geographic Lat/Lon to 3D Cartesian coordinates on a sphere.
  */
 function latLonToVector3(lat, lon, radius) {
   const phi = (90 - lat) * (Math.PI / 180);
@@ -41,52 +43,78 @@ function latLonToVector3(lat, lon, radius) {
 }
 
 /**
+ * Creates a smooth parabolic Bezier arc between two points on the sphere.
+ */
+function createArcCurve(from, to, radius = 1.0, elevation = 0.4) {
+  const mid = from.clone().add(to).multiplyScalar(0.5);
+  const dist = from.distanceTo(to);
+  const liftAmount = radius + elevation * (0.5 + dist * 0.6);
+  mid.normalize().multiplyScalar(liftAmount);
+  return new THREE.QuadraticBezierCurve3(from, mid, to);
+}
+
+/**
  * Attempts to load a texture from a list of fallback URLs.
  */
 function loadTextureWithFallback(loader, urls) {
   return new Promise((resolve, reject) => {
     let idx = 0;
     const tryNext = () => {
-      if (idx >= urls.length) {
-        reject(new Error("All texture URLs failed"));
-        return;
-      }
+      if (idx >= urls.length) { reject(new Error("All texture URLs failed")); return; }
       const url = urls[idx++];
-      loader.load(
-        url,
-        (texture) => resolve(texture),
-        undefined,
-        () => {
-          console.warn(`Texture failed from ${url}, trying next...`);
-          tryNext();
-        }
-      );
+      loader.load(url, (tex) => resolve(tex), undefined, () => { tryNext(); });
     };
     tryNext();
   });
 }
 
-export default function Globe3D({ geoData }) {
+/**
+ * Globe3D â€” Interactive 3D WebGL Earth with:
+ *   - Globe STATIC by default (autoRotate = false, user can enable)
+ *   - Multi-hop Bezier arc flight paths between email relay IPs
+ *   - Glowing animated particles flying along each arc
+ *   - VPN / Proxy / Tor detection HUD badge
+ *   - Interactive hop selector panel
+ *
+ * Props:
+ *   geoData   â€” single IP lookup result (single-point mode)
+ *   routeHops â€” array of hop objects from /api/geoip-route (multi-hop mode)
+ */
+export default function Globe3D({ geoData, routeHops = [] }) {
   const mountRef = useRef(null);
-  const [autoRotate, setAutoRotate] = useState(true);
+  // Globe is STILL by default â€” user must click the rotate button to spin it
+  const [autoRotate, setAutoRotate] = useState(false);
+  const autoRotateRef = useRef(false);
   const [zoomLevel, setZoomLevel] = useState(2.8);
   const [textureLoading, setTextureLoading] = useState(true);
   const [textureError, setTextureError] = useState(false);
+  const [activeHopIdx, setActiveHopIdx] = useState(0);
 
   const sceneRef = useRef(null);
   const rendererRef = useRef(null);
   const cameraRef = useRef(null);
   const globeGroupRef = useRef(null);
   const markerGroupRef = useRef(null);
+  const arcGroupRef = useRef(null);
   const cloudsRef = useRef(null);
   const isDraggingRef = useRef(false);
   const previousMousePositionRef = useRef({ x: 0, y: 0 });
   const animFrameRef = useRef(null);
 
+  useEffect(() => { autoRotateRef.current = autoRotate; }, [autoRotate]);
+
   const targetLat = typeof geoData?.latitude === "number" ? geoData.latitude : 0;
   const targetLon = typeof geoData?.longitude === "number" ? geoData.longitude : 0;
   const hasTarget = geoData && !geoData.isPrivate && (targetLat !== 0 || targetLon !== 0);
 
+  // Collect valid routable hops
+  const validHops = routeHops.filter((h) => h && !h.isPrivate && (h.latitude || h.longitude));
+
+  // VPN status across all hops
+  const detectedVpnHop = validHops.find((h) => h.isVpn || h.isTor || h.isProxy);
+  const hasVpnInRoute = Boolean(detectedVpnHop);
+
+  // Scene setup (runs once)
   useEffect(() => {
     const container = mountRef.current;
     if (!container) return;
@@ -94,17 +122,14 @@ export default function Globe3D({ geoData }) {
     const width = container.clientWidth || 600;
     const height = container.clientHeight || 450;
 
-    // ── Scene ──────────────────────────────────────────────────────────────
     const scene = new THREE.Scene();
     scene.background = new THREE.Color("#020d1a");
     sceneRef.current = scene;
 
-    // ── Camera ─────────────────────────────────────────────────────────────
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
     camera.position.z = 2.8;
     cameraRef.current = camera;
 
-    // ── Renderer ───────────────────────────────────────────────────────────
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -114,47 +139,46 @@ export default function Globe3D({ geoData }) {
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    // ── Globe Group ─────────────────────────────────────────────────────────
     const globeGroup = new THREE.Group();
     scene.add(globeGroup);
     globeGroupRef.current = globeGroup;
 
-    // ── Marker Group ────────────────────────────────────────────────────────
     const markerGroup = new THREE.Group();
     globeGroup.add(markerGroup);
     markerGroupRef.current = markerGroup;
 
-    // ── Background Stars ────────────────────────────────────────────────────
+    const arcGroup = new THREE.Group();
+    globeGroup.add(arcGroup);
+    arcGroupRef.current = arcGroup;
+
+    // Stars
     const starsGeo = new THREE.BufferGeometry();
     const starsCount = 3000;
     const starPos = new Float32Array(starsCount * 3);
     for (let i = 0; i < starsCount * 3; i += 3) {
       const r = 80 + Math.random() * 120;
-      const theta = Math.random() * 2 * Math.PI;
-      const phi = Math.acos(2 * Math.random() - 1);
-      starPos[i] = r * Math.sin(phi) * Math.cos(theta);
-      starPos[i + 1] = r * Math.sin(phi) * Math.sin(theta);
-      starPos[i + 2] = r * Math.cos(phi);
+      const t = Math.random() * 2 * Math.PI;
+      const p = Math.acos(2 * Math.random() - 1);
+      starPos[i] = r * Math.sin(p) * Math.cos(t);
+      starPos[i + 1] = r * Math.sin(p) * Math.sin(t);
+      starPos[i + 2] = r * Math.cos(p);
     }
     starsGeo.setAttribute("position", new THREE.BufferAttribute(starPos, 3));
     const starsMat = new THREE.PointsMaterial({ color: "#e8f4fd", size: 0.3, sizeAttenuation: true, transparent: true, opacity: 0.8 });
     scene.add(new THREE.Points(starsGeo, starsMat));
 
-    // ── Lighting ─────────────────────────────────────────────────────────────
-    const ambientLight = new THREE.AmbientLight("#d0e8ff", 0.4);
-    scene.add(ambientLight);
-
+    // Lighting
+    scene.add(new THREE.AmbientLight("#d0e8ff", 0.4));
     const sunLight = new THREE.DirectionalLight("#fff5e0", 2.2);
     sunLight.position.set(5, 3, 5);
     scene.add(sunLight);
-
     const fillLight = new THREE.DirectionalLight("#2060ff", 0.3);
     fillLight.position.set(-5, -2, -3);
     scene.add(fillLight);
 
     const radius = 1.0;
 
-    // ── Atmospheric Glow Shader ──────────────────────────────────────────────
+    // Atmospheric glow
     const glowGeo = new THREE.SphereGeometry(radius * 1.18, 64, 64);
     const glowMat = new THREE.ShaderMaterial({
       vertexShader: `
@@ -179,19 +203,13 @@ export default function Globe3D({ geoData }) {
     });
     scene.add(new THREE.Mesh(glowGeo, glowMat));
 
-    // ── Load Real Open-Source Textures ──────────────────────────────────────
+    // Earth
     const loader = new THREE.TextureLoader();
     loader.crossOrigin = "anonymous";
-
     const earthGeo = new THREE.SphereGeometry(radius, 64, 64);
-    let earthMesh;
-
-    // Placeholder while textures load
-    const placeholderMat = new THREE.MeshPhongMaterial({ color: "#1a3a5c" });
-    earthMesh = new THREE.Mesh(earthGeo, placeholderMat);
+    const earthMesh = new THREE.Mesh(earthGeo, new THREE.MeshPhongMaterial({ color: "#1a3a5c" }));
     globeGroup.add(earthMesh);
 
-    // Async texture loading
     (async () => {
       try {
         const [earthTex, specTex, normalTex] = await Promise.allSettled([
@@ -201,8 +219,6 @@ export default function Globe3D({ geoData }) {
         ]);
 
         if (earthTex.status === "fulfilled") {
-          // Three.js r152+ automatically handles sRGB colorspace for loaded textures
-
           const realMat = new THREE.MeshPhongMaterial({
             map: earthTex.value,
             ...(specTex.status === "fulfilled" && { specularMap: specTex.value }),
@@ -210,72 +226,47 @@ export default function Globe3D({ geoData }) {
             specular: new THREE.Color("#113355"),
             shininess: 25,
           });
-
-          // Swap material
           earthMesh.material.dispose();
           earthMesh.material = realMat;
           setTextureLoading(false);
 
-          // Load cloud layer
           loadTextureWithFallback(loader, CLOUD_TEXTURE_URLS)
             .then((cloudTex) => {
               const cloudGeo = new THREE.SphereGeometry(radius * 1.01, 64, 64);
-              const cloudMat = new THREE.MeshPhongMaterial({
-                map: cloudTex,
-                alphaMap: cloudTex,
-                transparent: true,
-                opacity: 0.35,
-                depthWrite: false,
-              });
+              const cloudMat = new THREE.MeshPhongMaterial({ map: cloudTex, alphaMap: cloudTex, transparent: true, opacity: 0.35, depthWrite: false });
               const cloudMesh = new THREE.Mesh(cloudGeo, cloudMat);
               globeGroup.add(cloudMesh);
               cloudsRef.current = cloudMesh;
             })
-            .catch(() => {
-              console.info("Cloud texture unavailable, skipping cloud layer.");
-            });
-        } else {
-          throw new Error("Earth texture failed to load");
-        }
+            .catch(() => {});
+        } else throw new Error("Earth texture failed");
       } catch {
-        console.error("Texture loading failed, rendering fallback procedural globe.");
         setTextureError(true);
         setTextureLoading(false);
-        // Procedural fallback with grid lines
-        const fallbackMat = new THREE.MeshPhongMaterial({ color: "#1a4a7a", specular: "#2063ab", shininess: 15, wireframe: false });
         earthMesh.material.dispose();
-        earthMesh.material = fallbackMat;
-
+        earthMesh.material = new THREE.MeshPhongMaterial({ color: "#1a4a7a", specular: "#2063ab", shininess: 15 });
         const wireGeo = new THREE.SphereGeometry(radius * 1.002, 36, 18);
-        const wireMat = new THREE.MeshBasicMaterial({ color: "#38bdf8", wireframe: true, transparent: true, opacity: 0.15 });
-        globeGroup.add(new THREE.Mesh(wireGeo, wireMat));
+        globeGroup.add(new THREE.Mesh(wireGeo, new THREE.MeshBasicMaterial({ color: "#38bdf8", wireframe: true, transparent: true, opacity: 0.15 })));
       }
     })();
 
-    // ── Mouse Drag Rotation ─────────────────────────────────────────────────
+    // Mouse drag
     const domElement = renderer.domElement;
-    const onMouseDown = (e) => {
-      isDraggingRef.current = true;
-      previousMousePositionRef.current = { x: e.clientX, y: e.clientY };
-    };
+    const onMouseDown = (e) => { isDraggingRef.current = true; previousMousePositionRef.current = { x: e.clientX, y: e.clientY }; };
     const onMouseMove = (e) => {
       if (!isDraggingRef.current || !globeGroupRef.current) return;
       const dx = e.clientX - previousMousePositionRef.current.x;
       const dy = e.clientY - previousMousePositionRef.current.y;
       globeGroupRef.current.rotation.y += dx * 0.005;
-      globeGroupRef.current.rotation.x = Math.max(
-        -Math.PI / 2.2,
-        Math.min(Math.PI / 2.2, globeGroupRef.current.rotation.x + dy * 0.005)
-      );
+      globeGroupRef.current.rotation.x = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, globeGroupRef.current.rotation.x + dy * 0.005));
       previousMousePositionRef.current = { x: e.clientX, y: e.clientY };
     };
     const onMouseUp = () => { isDraggingRef.current = false; };
 
-    // ── Scroll-to-Zoom ─────────────────────────────────────────────────────
+    // Scroll zoom
     const onWheel = (e) => {
       e.preventDefault();
-      const delta = e.deltaY > 0 ? 0.15 : -0.15;
-      const newZ = Math.max(1.6, Math.min(4.5, cameraRef.current.position.z + delta));
+      const newZ = Math.max(1.6, Math.min(4.5, cameraRef.current.position.z + (e.deltaY > 0 ? 0.15 : -0.15)));
       cameraRef.current.position.z = newZ;
       setZoomLevel(newZ);
     };
@@ -285,7 +276,7 @@ export default function Globe3D({ geoData }) {
     window.addEventListener("mouseup", onMouseUp);
     domElement.addEventListener("wheel", onWheel, { passive: false });
 
-    // ── Resize Handler ─────────────────────────────────────────────────────
+    // Resize
     const onResize = () => {
       if (!container || !rendererRef.current || !cameraRef.current) return;
       const w = container.clientWidth;
@@ -296,27 +287,40 @@ export default function Globe3D({ geoData }) {
     };
     window.addEventListener("resize", onResize);
 
-    // ── Animation Loop ──────────────────────────────────────────────────────
+    // Animation loop
     const clock = new THREE.Clock();
     const animate = () => {
       animFrameRef.current = requestAnimationFrame(animate);
       const elapsed = clock.getElapsedTime();
 
-      if (!isDraggingRef.current && globeGroupRef.current) {
-        if (autoRotate) globeGroupRef.current.rotation.y += 0.0015;
+      // Auto-rotate only when explicitly enabled (default: OFF)
+      if (!isDraggingRef.current && globeGroupRef.current && autoRotateRef.current) {
+        globeGroupRef.current.rotation.y += 0.0015;
       }
 
-      if (cloudsRef.current) {
-        cloudsRef.current.rotation.y += 0.0004;
-      }
+      if (cloudsRef.current) cloudsRef.current.rotation.y += 0.0004;
 
-      // Pulsing marker rings
+      // Animate pulse rings
       if (markerGroupRef.current) {
         markerGroupRef.current.children.forEach((child) => {
           if (child.userData?.isPulseRing) {
             const scale = 1 + ((elapsed * 1.5) % 1.8);
             child.scale.set(scale, scale, scale);
             if (child.material) child.material.opacity = Math.max(0, 1 - scale / 2.8);
+          }
+        });
+      }
+
+      // Animate arc particles and glow pulse
+      if (arcGroupRef.current) {
+        arcGroupRef.current.children.forEach((child) => {
+          if (child.userData?.isParticle && child.userData.curve) {
+            child.userData.t = (child.userData.t + child.userData.speed) % 1;
+            const pt = child.userData.curve.getPoint(child.userData.t);
+            child.position.copy(pt);
+          }
+          if (child.userData?.isArcLine && child.material) {
+            child.material.opacity = 0.5 + 0.35 * Math.sin(elapsed * 2.5 + (child.userData.phaseOffset || 0));
           }
         });
       }
@@ -332,21 +336,12 @@ export default function Globe3D({ geoData }) {
       window.removeEventListener("mouseup", onMouseUp);
       domElement.removeEventListener("wheel", onWheel);
       window.removeEventListener("resize", onResize);
-
-      earthGeo.dispose();
-      starsGeo.dispose();
-      starsMat.dispose();
-      glowGeo.dispose();
-      glowMat.dispose();
-      renderer.dispose();
+      earthGeo.dispose(); starsGeo.dispose(); starsMat.dispose();
+      glowGeo.dispose(); glowMat.dispose(); renderer.dispose();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Update auto-rotate flag without remounting ──────────────────────────
-  const autoRotateRef = useRef(autoRotate);
-  useEffect(() => { autoRotateRef.current = autoRotate; }, [autoRotate]);
-
-  // ── Place Marker Whenever geoData Changes ──────────────────────────────
+  // Single-point marker (when no route hops)
   useEffect(() => {
     const markerGroup = markerGroupRef.current;
     const globeGroup = globeGroupRef.current;
@@ -359,61 +354,126 @@ export default function Globe3D({ geoData }) {
       markerGroup.remove(child);
     }
 
-    if (!hasTarget) return;
+    if (!hasTarget || validHops.length > 0) return;
 
     const radius = 1.0;
     const pos = latLonToVector3(targetLat, targetLon, radius);
     const dir = pos.clone().normalize();
 
-    // Glowing red beacon sphere
-    const beaconGeo = new THREE.SphereGeometry(0.022, 16, 16);
-    const beaconMat = new THREE.MeshBasicMaterial({ color: "#ff3333" });
-    const beacon = new THREE.Mesh(beaconGeo, beaconMat);
+    const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.022, 16, 16), new THREE.MeshBasicMaterial({ color: "#ff3333" }));
     beacon.position.copy(pos);
     markerGroup.add(beacon);
 
-    // Inner bright core
-    const coreGeo = new THREE.SphereGeometry(0.01, 8, 8);
-    const coreMat = new THREE.MeshBasicMaterial({ color: "#ffffff" });
-    const core = new THREE.Mesh(coreGeo, coreMat);
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.01, 8, 8), new THREE.MeshBasicMaterial({ color: "#ffffff" }));
     core.position.copy(pos);
     markerGroup.add(core);
 
-    // Outward beam line
     const beamEnd = pos.clone().add(dir.clone().multiplyScalar(0.22));
-    const lineGeo = new THREE.BufferGeometry().setFromPoints([pos, beamEnd]);
-    const lineMat = new THREE.LineBasicMaterial({ color: "#ff6666", linewidth: 2 });
-    markerGroup.add(new THREE.Line(lineGeo, lineMat));
+    markerGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([pos, beamEnd]), new THREE.LineBasicMaterial({ color: "#ff6666", linewidth: 2 })));
 
-    // Pulsing ring
-    const ringGeo = new THREE.RingGeometry(0.018, 0.04, 32);
-    const ringMat = new THREE.MeshBasicMaterial({
-      color: "#ff3333",
-      side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.85,
-    });
-    const ring = new THREE.Mesh(ringGeo, ringMat);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.018, 0.04, 32), new THREE.MeshBasicMaterial({ color: "#ff3333", side: THREE.DoubleSide, transparent: true, opacity: 0.85 }));
     ring.position.copy(pos.clone().multiplyScalar(1.001));
     ring.lookAt(pos.clone().multiplyScalar(2));
     ring.userData = { isPulseRing: true };
     markerGroup.add(ring);
 
-    // Second trailing ring
-    const ring2Geo = new THREE.RingGeometry(0.018, 0.04, 32);
-    const ring2Mat = new THREE.MeshBasicMaterial({ color: "#ff8888", side: THREE.DoubleSide, transparent: true, opacity: 0.5 });
-    const ring2 = new THREE.Mesh(ring2Geo, ring2Mat);
-    ring2.position.copy(pos.clone().multiplyScalar(1.001));
-    ring2.lookAt(pos.clone().multiplyScalar(2));
-    ring2.userData = { isPulseRing: true };
-    markerGroup.add(ring2);
+    globeGroup.rotation.y = -((targetLon + 90) * (Math.PI / 180));
+    globeGroup.rotation.x = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, (targetLat - 15) * (Math.PI / 180)));
+  }, [geoData?.ip, targetLat, targetLon, hasTarget, validHops.length]);
 
-    // Rotate globe to face the target
-    const targetRotY = -((targetLon + 90) * (Math.PI / 180));
-    const targetRotX = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, (targetLat - 15) * (Math.PI / 180)));
-    globeGroup.rotation.y = targetRotY;
-    globeGroup.rotation.x = targetRotX;
-  }, [geoData?.ip, targetLat, targetLon, hasTarget]);
+  // Multi-hop arc flight paths
+  useEffect(() => {
+    const markerGroup = markerGroupRef.current;
+    const arcGroup = arcGroupRef.current;
+    const globeGroup = globeGroupRef.current;
+    if (!markerGroup || !arcGroup || !globeGroup) return;
+
+    [markerGroup, arcGroup].forEach((group) => {
+      while (group.children.length > 0) {
+        const child = group.children[0];
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) child.material.dispose();
+        group.remove(child);
+      }
+    });
+
+    if (validHops.length === 0) return;
+
+    const radius = 1.0;
+
+    validHops.forEach((hop, idx) => {
+      const pos = latLonToVector3(hop.latitude, hop.longitude, radius);
+      const color = ARC_COLORS[idx % ARC_COLORS.length];
+      const isVpn = hop.isVpn || hop.isTor || hop.isProxy;
+
+      // Beacon
+      const beacon = new THREE.Mesh(new THREE.SphereGeometry(isVpn ? 0.030 : 0.022, 16, 16), new THREE.MeshBasicMaterial({ color: isVpn ? "#ff4444" : color }));
+      beacon.position.copy(pos);
+      beacon.userData = { hopIdx: idx };
+      markerGroup.add(beacon);
+
+      // Core
+      const core = new THREE.Mesh(new THREE.SphereGeometry(0.01, 8, 8), new THREE.MeshBasicMaterial({ color: "#ffffff" }));
+      core.position.copy(pos);
+      markerGroup.add(core);
+
+      // Beam
+      const dir = pos.clone().normalize();
+      const beamEnd = pos.clone().add(dir.multiplyScalar(isVpn ? 0.35 : 0.20));
+      markerGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([pos, beamEnd]), new THREE.LineBasicMaterial({ color, linewidth: 2 })));
+
+      // Pulse ring
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.018, 0.04, 32), new THREE.MeshBasicMaterial({ color: isVpn ? "#ff4444" : color, side: THREE.DoubleSide, transparent: true, opacity: 0.85 }));
+      ring.position.copy(pos.clone().multiplyScalar(1.001));
+      ring.lookAt(pos.clone().multiplyScalar(2));
+      ring.userData = { isPulseRing: true };
+      markerGroup.add(ring);
+
+      // Arc from previous hop
+      if (idx > 0) {
+        const prevHop = validHops[idx - 1];
+        const prevPos = latLonToVector3(prevHop.latitude, prevHop.longitude, radius);
+        const curve = createArcCurve(prevPos, pos, radius, 0.45);
+        const points = curve.getPoints(80);
+
+        // Main arc line
+        const arcLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), new THREE.LineBasicMaterial({ color: ARC_COLORS[(idx - 1) % ARC_COLORS.length], transparent: true, opacity: 0.75, linewidth: 2 }));
+        arcLine.userData = { isArcLine: true, phaseOffset: idx * 1.2 };
+        arcGroup.add(arcLine);
+
+        // Glow arc
+        const glowArc = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), new THREE.LineBasicMaterial({ color: PARTICLE_COLORS[(idx - 1) % PARTICLE_COLORS.length], transparent: true, opacity: 0.25, linewidth: 4 }));
+        glowArc.userData = { isArcLine: true, phaseOffset: idx * 1.2 + 0.5 };
+        arcGroup.add(glowArc);
+
+        // Animated particles
+        for (let p = 0; p < 3; p++) {
+          const particle = new THREE.Mesh(new THREE.SphereGeometry(0.013, 8, 8), new THREE.MeshBasicMaterial({ color: PARTICLE_COLORS[(idx - 1) % PARTICLE_COLORS.length], transparent: true, opacity: 0.9 }));
+          const startT = p / 3;
+          particle.position.copy(curve.getPoint(startT));
+          particle.userData = { isParticle: true, curve, t: startT, speed: 0.004 + Math.random() * 0.003 };
+          arcGroup.add(particle);
+        }
+      }
+    });
+
+    // Orient globe to show midpoint of path
+    const firstHop = validHops[0];
+    const lastHop = validHops[validHops.length - 1];
+    const midLon = (firstHop.longitude + lastHop.longitude) / 2;
+    const midLat = (firstHop.latitude + lastHop.latitude) / 2;
+    globeGroup.rotation.y = -((midLon + 90) * (Math.PI / 180));
+    globeGroup.rotation.x = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, (midLat - 15) * (Math.PI / 180)));
+  }, [validHops.length, routeHops]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Focus on specific hop
+  const focusHop = (idx) => {
+    setActiveHopIdx(idx);
+    const hop = validHops[idx];
+    if (!hop || !globeGroupRef.current) return;
+    globeGroupRef.current.rotation.y = -((hop.longitude + 90) * (Math.PI / 180));
+    globeGroupRef.current.rotation.x = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, (hop.latitude - 15) * (Math.PI / 180)));
+  };
 
   const handleZoom = (delta) => {
     if (!cameraRef.current) return;
@@ -426,7 +486,12 @@ export default function Globe3D({ geoData }) {
     if (!cameraRef.current || !globeGroupRef.current) return;
     cameraRef.current.position.z = 2.8;
     setZoomLevel(2.8);
-    if (hasTarget) {
+    if (validHops.length > 0) {
+      const firstHop = validHops[0];
+      const lastHop = validHops[validHops.length - 1];
+      globeGroupRef.current.rotation.y = -(((firstHop.longitude + lastHop.longitude) / 2 + 90) * (Math.PI / 180));
+      globeGroupRef.current.rotation.x = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, ((firstHop.latitude + lastHop.latitude) / 2 - 15) * (Math.PI / 180)));
+    } else if (hasTarget) {
       globeGroupRef.current.rotation.y = -((targetLon + 90) * (Math.PI / 180));
       globeGroupRef.current.rotation.x = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, (targetLat - 15) * (Math.PI / 180)));
     } else {
@@ -437,7 +502,7 @@ export default function Globe3D({ geoData }) {
   const ctrlStyle = (active) => ({
     background: active ? "rgba(37, 99, 235, 0.85)" : "rgba(2, 13, 26, 0.85)",
     backdropFilter: "blur(6px)",
-    border: "1px solid rgba(56, 189, 248, 0.35)",
+    border: `1px solid ${active ? "rgba(37,99,235,0.7)" : "rgba(56, 189, 248, 0.35)"}`,
     color: "#e0f2fe",
     width: "36px",
     height: "36px",
@@ -448,184 +513,123 @@ export default function Globe3D({ geoData }) {
     cursor: "pointer",
   });
 
-  return (
-    <div
-      style={{
-        position: "relative",
-        width: "100%",
-        height: "480px",
-        background: "#020d1a",
-        borderRadius: "12px",
-        overflow: "hidden",
-        border: "1px solid #0f2d4a",
-        boxShadow: "0 16px 40px rgba(0, 0, 0, 0.5)",
-      }}
-    >
-      {/* 3D WebGL Canvas */}
-      <div
-        ref={mountRef}
-        style={{ width: "100%", height: "100%", cursor: "grab" }}
-      />
+  const activeHop = validHops[activeHopIdx];
 
-      {/* Texture Loading Indicator */}
+  return (
+    <div style={{ position: "relative", width: "100%", height: "520px", background: "#020d1a", borderRadius: "12px", overflow: "hidden", border: "1px solid #0f2d4a", boxShadow: "0 16px 40px rgba(0,0,0,0.5)" }}>
+      <div ref={mountRef} style={{ width: "100%", height: "100%", cursor: "grab" }} />
+
       {textureLoading && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: "50px",
-            left: "50%",
-            transform: "translateX(-50%)",
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            background: "rgba(2, 13, 26, 0.85)",
-            border: "1px solid rgba(56, 189, 248, 0.3)",
-            borderRadius: "20px",
-            padding: "6px 16px",
-            color: "#38bdf8",
-            fontSize: "12px",
-            fontWeight: "600",
-            backdropFilter: "blur(6px)",
-          }}
-        >
+        <div style={{ position: "absolute", bottom: "50px", left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: "8px", background: "rgba(2,13,26,0.85)", border: "1px solid rgba(56,189,248,0.3)", borderRadius: "20px", padding: "6px 16px", color: "#38bdf8", fontSize: "12px", fontWeight: "600", backdropFilter: "blur(6px)" }}>
           <Loader size={14} style={{ animation: "spin 1s linear infinite" }} />
           Loading NASA Earth Texture...
         </div>
       )}
 
       {textureError && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: "50px",
-            left: "50%",
-            transform: "translateX(-50%)",
-            background: "rgba(40, 10, 10, 0.85)",
-            border: "1px solid #7f1d1d",
-            borderRadius: "20px",
-            padding: "6px 16px",
-            color: "#fca5a5",
-            fontSize: "12px",
-            backdropFilter: "blur(6px)",
-          }}
-        >
-          ⚠ Texture unavailable — check internet connection
+        <div style={{ position: "absolute", bottom: "50px", left: "50%", transform: "translateX(-50%)", background: "rgba(40,10,10,0.85)", border: "1px solid #7f1d1d", borderRadius: "20px", padding: "6px 16px", color: "#fca5a5", fontSize: "12px", backdropFilter: "blur(6px)" }}>
+          âš  Texture unavailable â€” check internet connection
         </div>
       )}
 
       {/* HUD TOP-LEFT */}
-      <div
-        style={{
-          position: "absolute",
-          top: "16px",
-          left: "16px",
-          pointerEvents: "none",
-          zIndex: 10,
-        }}
-      >
-        <div
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "8px",
-            background: "rgba(2, 13, 26, 0.82)",
-            backdropFilter: "blur(10px)",
-            border: "1px solid rgba(56, 189, 248, 0.4)",
-            padding: "6px 14px",
-            borderRadius: "6px",
-            color: "#38bdf8",
-            fontSize: "11px",
-            fontWeight: "700",
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-          }}
-        >
+      <div style={{ position: "absolute", top: "16px", left: "16px", pointerEvents: "none", zIndex: 10 }}>
+        {/* Title */}
+        <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", background: "rgba(2,13,26,0.82)", backdropFilter: "blur(10px)", border: "1px solid rgba(56,189,248,0.4)", padding: "6px 14px", borderRadius: "6px", color: "#38bdf8", fontSize: "11px", fontWeight: "700", letterSpacing: "0.08em", textTransform: "uppercase" }}>
           <Crosshair size={13} />
-          3D Geolocation Radar · NASA Blue Marble
+          {validHops.length > 1 ? `Email Transmission Â· ${validHops.length} Hops` : "3D Geolocation Radar Â· NASA Blue Marble"}
         </div>
 
-        {geoData && !geoData.isPrivate && (
-          <div
-            style={{
-              marginTop: "10px",
-              background: "rgba(2, 13, 26, 0.88)",
-              backdropFilter: "blur(10px)",
-              border: "1px solid rgba(56, 189, 248, 0.25)",
-              borderRadius: "8px",
-              padding: "12px 16px",
-              maxWidth: "280px",
-            }}
-          >
+        {/* VPN Detection Badge */}
+        {validHops.length > 0 && (
+          <div style={{ marginTop: "8px", display: "inline-flex", alignItems: "center", gap: "8px", background: hasVpnInRoute ? "rgba(127,0,0,0.85)" : "rgba(0,40,20,0.85)", backdropFilter: "blur(10px)", border: `1px solid ${hasVpnInRoute ? "#ef4444" : "#10b981"}`, padding: "6px 14px", borderRadius: "6px", color: hasVpnInRoute ? "#fca5a5" : "#6ee7b7", fontSize: "11px", fontWeight: "700", letterSpacing: "0.06em" }}>
+            {hasVpnInRoute ? <ShieldAlert size={14} /> : <Shield size={14} />}
+            {hasVpnInRoute ? `VPN / PROXY DETECTED Â· ${detectedVpnHop?.vpnType || "Anonymous Relay"}` : "VPN / PROXY: CLEAN Â· Direct ISP Path"}
+          </div>
+        )}
+
+        {/* Active Hop Card */}
+        {activeHop && (
+          <div style={{ marginTop: "8px", background: "rgba(2,13,26,0.88)", backdropFilter: "blur(10px)", border: "1px solid rgba(56,189,248,0.25)", borderRadius: "8px", padding: "10px 14px", maxWidth: "280px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", color: ARC_COLORS[activeHopIdx % ARC_COLORS.length], fontWeight: "700", fontSize: "13px" }}>
+              <MapPin size={13} />
+              Hop {activeHop.hopIndex ?? activeHopIdx + 1}: {activeHop.city}, {activeHop.country_name}
+            </div>
+            <div style={{ marginTop: "4px", color: "#94a3b8", fontFamily: "monospace", fontSize: "11px" }}>IP: {activeHop.ip}</div>
+            <div style={{ marginTop: "2px", color: "#38bdf8", fontFamily: "monospace", fontSize: "11px" }}>
+              {Number(activeHop.latitude).toFixed(4)}Â°, {Number(activeHop.longitude).toFixed(4)}Â°
+            </div>
+            <div style={{ marginTop: "3px", color: "#cbd5e1", fontSize: "11px" }}>{activeHop.isp || activeHop.org}</div>
+            {activeHop.isVpn && (
+              <div style={{ marginTop: "4px", padding: "3px 8px", borderRadius: "4px", background: "rgba(127,0,0,0.6)", color: "#fca5a5", fontSize: "10px", fontWeight: "700" }}>
+                âš  {activeHop.vpnType}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Single geoData card */}
+        {!activeHop && geoData && !geoData.isPrivate && (
+          <div style={{ marginTop: "10px", background: "rgba(2,13,26,0.88)", backdropFilter: "blur(10px)", border: "1px solid rgba(56,189,248,0.25)", borderRadius: "8px", padding: "12px 16px", maxWidth: "280px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "#f87171", fontWeight: "700", fontSize: "13px" }}>
               <MapPin size={14} /> {geoData.city}, {geoData.country_name}
             </div>
-            <div style={{ marginTop: "4px", color: "#94a3b8", fontFamily: "monospace", fontSize: "11px" }}>
-              IP: {geoData.ip}
-            </div>
+            <div style={{ marginTop: "4px", color: "#94a3b8", fontFamily: "monospace", fontSize: "11px" }}>IP: {geoData.ip}</div>
             <div style={{ marginTop: "2px", color: "#38bdf8", fontFamily: "monospace", fontSize: "11px" }}>
-              Lat: {targetLat.toFixed(4)}° · Lon: {targetLon.toFixed(4)}°
+              Lat: {targetLat.toFixed(4)}Â° Â· Lon: {targetLon.toFixed(4)}Â°
             </div>
-            <div style={{ marginTop: "4px", color: "#cbd5e1", fontSize: "11px" }}>
-              {geoData.isp || geoData.org}
-            </div>
+            <div style={{ marginTop: "4px", color: "#cbd5e1", fontSize: "11px" }}>{geoData.isp || geoData.org}</div>
+            {geoData.isVpn && (
+              <div style={{ marginTop: "6px", padding: "4px 8px", borderRadius: "4px", background: "rgba(127,0,0,0.6)", color: "#fca5a5", fontSize: "11px", fontWeight: "700" }}>
+                ðŸ›¡ {geoData.vpnType}
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Controls */}
-      <div
-        style={{
-          position: "absolute",
-          top: "16px",
-          right: "16px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "8px",
-          zIndex: 10,
-        }}
-      >
-        <button onClick={() => handleZoom(-0.4)} title="Zoom In" style={ctrlStyle(false)}>
-          <ZoomIn size={16} />
-        </button>
-        <button onClick={() => handleZoom(0.4)} title="Zoom Out" style={ctrlStyle(false)}>
-          <ZoomOut size={16} />
-        </button>
-        <button
-          onClick={() => setAutoRotate((r) => !r)}
-          title={autoRotate ? "Pause Rotation" : "Resume Rotation"}
-          style={ctrlStyle(autoRotate)}
-        >
+      {/* Controls TOP-RIGHT */}
+      <div style={{ position: "absolute", top: "16px", right: "16px", display: "flex", flexDirection: "column", gap: "8px", zIndex: 10 }}>
+        <button onClick={() => handleZoom(-0.4)} title="Zoom In" style={ctrlStyle(false)}><ZoomIn size={16} /></button>
+        <button onClick={() => handleZoom(0.4)} title="Zoom Out" style={ctrlStyle(false)}><ZoomOut size={16} /></button>
+        <button onClick={() => setAutoRotate((r) => !r)} title={autoRotate ? "Stop Rotation" : "Enable Auto-Rotate"} style={ctrlStyle(autoRotate)}>
           <RotateCw size={16} />
         </button>
-        <button onClick={resetView} title="Reset View" style={ctrlStyle(false)}>
-          <Crosshair size={16} />
-        </button>
+        <button onClick={resetView} title="Reset View" style={ctrlStyle(false)}><Crosshair size={16} /></button>
       </div>
 
+      {/* Hop Selector BOTTOM (multi-hop mode) */}
+      {validHops.length > 1 && (
+        <div style={{ position: "absolute", bottom: "40px", left: "16px", right: "16px", display: "flex", gap: "6px", flexWrap: "wrap", zIndex: 10 }}>
+          {validHops.map((hop, idx) => (
+            <button
+              key={idx}
+              onClick={() => focusHop(idx)}
+              style={{
+                padding: "5px 10px", borderRadius: "6px",
+                border: `1px solid ${idx === activeHopIdx ? ARC_COLORS[idx % ARC_COLORS.length] : "rgba(56,189,248,0.3)"}`,
+                background: idx === activeHopIdx ? "rgba(2,13,26,0.95)" : "rgba(2,13,26,0.75)",
+                color: idx === activeHopIdx ? ARC_COLORS[idx % ARC_COLORS.length] : "#94a3b8",
+                fontSize: "11px", fontFamily: "monospace", cursor: "pointer", backdropFilter: "blur(6px)",
+                display: "flex", alignItems: "center", gap: "5px",
+              }}
+            >
+              {hop.isVpn ? "âš " : "â—"} Hop {idx + 1}: {hop.ip} ({hop.country_code})
+              {hop.isVpn && <span style={{ color: "#ff4444", fontWeight: "800" }}>VPN</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Bottom Telemetry Bar */}
-      <div
-        style={{
-          position: "absolute",
-          bottom: "12px",
-          left: "16px",
-          right: "16px",
-          display: "flex",
-          justifyContent: "space-between",
-          pointerEvents: "none",
-          fontSize: "10px",
-          color: "#334155",
-          fontFamily: "monospace",
-          letterSpacing: "0.05em",
-          textTransform: "uppercase",
-        }}
-      >
-        <span>WebGL · Three.js · NASA Blue Marble Texture · Drag to Rotate · Scroll to Zoom</span>
+      <div style={{ position: "absolute", bottom: "12px", left: "16px", right: "16px", display: "flex", justifyContent: "space-between", pointerEvents: "none", fontSize: "10px", color: "#334155", fontFamily: "monospace", letterSpacing: "0.05em", textTransform: "uppercase" }}>
+        <span>WebGL Â· Three.js Â· NASA Blue Marble Â· Drag to Rotate Â· Scroll to Zoom</span>
         <span>CAM ALT: {(zoomLevel * 1000).toFixed(0)} KM</span>
       </div>
 
-      <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-      `}</style>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
+
+

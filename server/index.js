@@ -156,9 +156,81 @@ function isPrivateIpAddress(ip) {
   return false;
 }
 
+// ── VPN / Proxy / Tor Heuristic Classifier ─────────────────────────────────
+const VPN_KEYWORDS = [
+  "nordvpn", "expressvpn", "surfshark", "mullvad", "protonvpn", "ipvanish",
+  "cyberghost", "purevpn", "hidemyass", "torguard", "pia", "privatevpn",
+  "windscribe", "tunnelbear", "hotspot shield", "vyprvpn",
+  "tor exit", "tor network", "torexit", "anonymizer",
+  "datacamp", "choopa", "vultr", "linode", "digitalocean", "ovh sas", "m247",
+  "quadranet", "sharktech", "serverius", "frantech", "prgmr",
+  "privacyfoundation", "privacyguard", "private internet",
+];
+
+function evaluateVpnThreat(data) {
+  const isp = (data.isp || "").toLowerCase();
+  const org = (data.org || "").toLowerCase();
+  const asName = (data.as || "").toLowerCase();
+  const combined = `${isp} ${org} ${asName}`;
+
+  let isVpn = false;
+  let vpnType = "Clean Direct Connection";
+  let vpnConfidence = "None";
+  let isTor = false;
+  let isProxy = Boolean(data.proxy);
+  let isHosting = Boolean(data.hosting);
+  let threatScore = 10;
+  let threatFlags = [];
+
+  // Tor detection
+  if (combined.includes("tor") || combined.includes("torexit") || combined.includes("onion")) {
+    isTor = true;
+    isVpn = true;
+    vpnType = "Tor Exit Node";
+    vpnConfidence = "High";
+    threatScore = 95;
+    threatFlags.push("TOR_EXIT_NODE");
+  }
+
+  // Direct proxy flag from ip-api
+  if (data.proxy && !isTor) {
+    isVpn = true;
+    vpnType = "Commercial VPN / Anonymous Proxy";
+    vpnConfidence = "High";
+    threatScore = Math.max(threatScore, 80);
+    threatFlags.push("PROXY_DETECTED");
+  }
+
+  // Hosting/datacenter with VPN keywords
+  if (data.hosting && !isTor) {
+    vpnType = "Datacenter / VPS / Relay Node";
+    vpnConfidence = "Medium";
+    threatScore = Math.max(threatScore, 55);
+    threatFlags.push("DATACENTER_HOSTING");
+    isVpn = true;
+  }
+
+  // Keyword-based detection
+  for (const kw of VPN_KEYWORDS) {
+    if (combined.includes(kw)) {
+      isVpn = true;
+      if (!isTor && !data.proxy) {
+        vpnType = "Identified VPN Provider (" + kw.toUpperCase() + ")";
+        vpnConfidence = "High";
+        threatScore = Math.max(threatScore, 85);
+        threatFlags.push("VPN_PROVIDER_ASN");
+      }
+      break;
+    }
+  }
+
+  return { isVpn, vpnType, vpnConfidence, isTor, isProxy, isHosting, threatScore, threatFlags };
+}
+
 /**
  * 2. REAL LIVE HIGH-ACCURACY GEOIP LOOKUP API
  * Resolves genuine IP routing, ASN, ISP, and high-precision GPS coordinates.
+ * Also detects VPN, Proxy, Tor, and Datacenter relay nodes.
  */
 app.get("/api/geoip", async (req, res) => {
   const ip = (req.query.ip || "").trim().replace(/[[\]]/g, "");
@@ -189,13 +261,61 @@ app.get("/api/geoip", async (req, res) => {
       org: "Private Infrastructure",
       asn: "N/A",
       isPrivate: true,
+      isVpn: false,
+      vpnType: "Internal LAN (No VPN)",
+      vpnConfidence: "None",
+      isTor: false,
+      isProxy: false,
+      isHosting: false,
+      threatScore: 0,
+      threatFlags: [],
       accuracyStatus: "Non-Routable RFC 1918 Address",
     };
     serverGeoCache.set(ip, privateResponse);
     return res.json(privateResponse);
   }
 
-  // Provider 1: ipwho.is (7 decimal GPS accuracy, timezone, ISP, ASN, postal)
+  // Provider 1: ip-api.com with proxy+hosting fields (best VPN detection)
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    const fields = "status,message,country,countryCode,regionName,city,zip,lat,lon,timezone,isp,org,as,query,proxy,hosting,mobile";
+    const liveRes = await fetch(`http://ip-api.com/json/${encodeURIComponent(ip)}?fields=${fields}`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (liveRes.ok) {
+      const data = await liveRes.json();
+      if (data.status === "success") {
+        const vpnInfo = evaluateVpnThreat(data);
+        const geoResult = {
+          ip: data.query || ip,
+          city: data.city || "Unknown City",
+          region: data.regionName || "Unknown Region",
+          country_name: data.country || "Unknown Country",
+          country_code: data.countryCode || "UN",
+          country_flag: "🌐",
+          postal: data.zip || "N/A",
+          latitude: data.lat || 0,
+          longitude: data.lon || 0,
+          timezone: data.timezone || "UTC",
+          isp: data.isp || "Internet Service Provider",
+          org: data.org || data.isp || "Network Host",
+          asn: data.as || "N/A",
+          isPrivate: false,
+          ...vpnInfo,
+          accuracyStatus: "Real-Time (ip-api.com + VPN Detection)",
+        };
+        serverGeoCache.set(ip, geoResult);
+        return res.json(geoResult);
+      }
+    }
+  } catch (err) {
+    console.warn("ip-api.com lookup failed, trying fallback:", err.message);
+  }
+
+  // Provider 2: ipwho.is (7 decimal GPS accuracy, timezone, ISP, ASN, postal)
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4500);
@@ -208,6 +328,8 @@ app.get("/api/geoip", async (req, res) => {
     if (liveRes.ok) {
       const data = await liveRes.json();
       if (data.success) {
+        const syntheticData = { isp: data.connection?.isp || "", org: data.connection?.org || "", as: data.connection?.asn ? `AS${data.connection.asn}` : "" };
+        const vpnInfo = evaluateVpnThreat(syntheticData);
         const geoResult = {
           ip,
           city: data.city || "Unknown City",
@@ -223,6 +345,7 @@ app.get("/api/geoip", async (req, res) => {
           org: data.connection?.org || data.connection?.domain || "Network Host",
           asn: data.connection?.asn ? `AS${data.connection.asn}` : "N/A",
           isPrivate: false,
+          ...vpnInfo,
           accuracyStatus: "High-Precision GPS (ipwho.is)",
         };
         serverGeoCache.set(ip, geoResult);
@@ -233,7 +356,7 @@ app.get("/api/geoip", async (req, res) => {
     console.warn("ipwho.is lookup failed, trying fallback:", err.message);
   }
 
-  // Provider 2: freeipapi.com
+  // Provider 3: freeipapi.com
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4500);
@@ -261,6 +384,14 @@ app.get("/api/geoip", async (req, res) => {
           org: `IPv${data.ipVersion || 4} Node`,
           asn: data.asn ? `AS${data.asn}` : "N/A",
           isPrivate: false,
+          isVpn: false,
+          vpnType: "Clean Direct Connection",
+          vpnConfidence: "None",
+          isTor: false,
+          isProxy: false,
+          isHosting: false,
+          threatScore: 10,
+          threatFlags: [],
           accuracyStatus: "Standard Precision (freeipapi)",
         };
         serverGeoCache.set(ip, geoResult);
@@ -268,41 +399,85 @@ app.get("/api/geoip", async (req, res) => {
       }
     }
   } catch (err) {
-    console.warn("freeipapi lookup failed, trying fallback:", err.message);
-  }
-
-  // Provider 3: ip-api.com
-  try {
-    const liveGeo = await fetch(`http://ip-api.com/json/${encodeURIComponent(ip)}`);
-    if (liveGeo.ok) {
-      const data = await liveGeo.json();
-      if (data.status === "success") {
-        const geoResult = {
-          ip: data.query || ip,
-          city: data.city || "Unknown City",
-          region: data.regionName || "Unknown Region",
-          country_name: data.country || "Unknown Country",
-          country_code: data.countryCode || "UN",
-          country_flag: "🌐",
-          postal: data.zip || "N/A",
-          latitude: data.lat || 0,
-          longitude: data.lon || 0,
-          timezone: data.timezone || "UTC",
-          isp: data.isp || "Internet Service Provider",
-          org: data.org || data.isp || "Network Host",
-          asn: data.as || "N/A",
-          isPrivate: false,
-          accuracyStatus: "Standard Coords (ip-api)",
-        };
-        serverGeoCache.set(ip, geoResult);
-        return res.json(geoResult);
-      }
-    }
-  } catch (err) {
-    console.error("All GeoIP providers failed:", err.message);
+    console.warn("freeipapi lookup failed:", err.message);
   }
 
   return res.status(502).json({ error: "Failed to resolve IP location from live providers." });
+});
+
+
+
+/**
+ * 2b. MULTI-HOP EMAIL ROUTE RESOLVER
+ * Accepts an array of IPs (from email Received headers) and returns
+ * full geolocation + VPN metadata for each hop in the transmission chain.
+ */
+app.post("/api/geoip-route", async (req, res) => {
+  const { ips } = req.body;
+
+  if (!Array.isArray(ips) || ips.length === 0) {
+    return res.status(400).json({ error: "An array of IP addresses is required." });
+  }
+
+  const cleanIPs = ips
+    .map((ip) => String(ip || "").trim().replace(/[[\]]/g, ""))
+    .filter((ip) => ip && !isPrivateIpAddress(ip))
+    .slice(0, 10);
+
+  if (cleanIPs.length === 0) {
+    return res.json({ totalHops: 0, hops: [], hasVpnInRoute: false, originHop: null, destinationHop: null });
+  }
+
+  const hops = [];
+  for (const ip of cleanIPs) {
+    try {
+      if (serverGeoCache.has(ip)) {
+        hops.push({ ...serverGeoCache.get(ip), hopIndex: hops.length + 1 });
+        continue;
+      }
+
+      const fields = "status,message,country,countryCode,regionName,city,zip,lat,lon,timezone,isp,org,as,query,proxy,hosting,mobile";
+      const r = await fetch(`http://ip-api.com/json/${encodeURIComponent(ip)}?fields=${fields}`);
+      if (r.ok) {
+        const data = await r.json();
+        if (data.status === "success") {
+          const vpnInfo = evaluateVpnThreat(data);
+          const hop = {
+            ip: data.query || ip,
+            city: data.city || "Unknown City",
+            region: data.regionName || "Unknown Region",
+            country_name: data.country || "Unknown Country",
+            country_code: data.countryCode || "UN",
+            country_flag: "🌐",
+            postal: data.zip || "N/A",
+            latitude: data.lat || 0,
+            longitude: data.lon || 0,
+            timezone: data.timezone || "UTC",
+            isp: data.isp || "ISP",
+            org: data.org || "Network",
+            asn: data.as || "N/A",
+            isPrivate: false,
+            ...vpnInfo,
+            hopIndex: hops.length + 1,
+          };
+          serverGeoCache.set(ip, hop);
+          hops.push(hop);
+        }
+      }
+    } catch (err) {
+      console.warn(`Hop resolution failed for ${ip}:`, err.message);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+
+  const hasVpnInRoute = hops.some((h) => h.isVpn);
+  return res.json({
+    totalHops: hops.length,
+    hops,
+    hasVpnInRoute,
+    originHop: hops[0] || null,
+    destinationHop: hops.length > 1 ? hops[hops.length - 1] : null,
+  });
 });
 
 /**
