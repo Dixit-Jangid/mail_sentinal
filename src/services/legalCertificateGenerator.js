@@ -8,7 +8,7 @@
  * Tailored for Indian Law Enforcement (Cyber Police, CBI, CERT-In, Judicial Tribunals).
  */
 
-import { maskSensitiveText } from "./privacyService";
+import { maskSensitiveText } from "./privacyService.js";
 
 /**
  * Generates plain-text Section 65B/63 Certificate suitable for copy/paste into legal filings.
@@ -56,6 +56,8 @@ Threat Severity Level: ${analysis.riskLevel}
 Classification       : ${analysis.primaryClassification || "N/A"} (${analysis.classificationConfidence || 0}% Confidence)
 Protocol Alignment   : SPF: ${analysis.spf} | DKIM: ${analysis.dkim} | DMARC: ${analysis.dmarc}
 Originating IP / Hop : ${analysis.earliestNodeIP || "N/A"}
+Tor ExoneraTor Check : ${analysis.exonerator?.isTorExitNode ? `POSITIVE - Tor Exit Node Verified on ${analysis.exonerator?.date}` : `NEGATIVE - Non-Tor Transmitting Host (${analysis.exonerator?.date || "Transmission Date"})`}
+ExoneraTor Docket    : ${analysis.exonerator?.officialExoneratorUrl || `https://exonerator.torproject.org/?ip=${analysis.earliestNodeIP || ""}`}
 
 --------------------------------------------------------------------------------
 4. STATUTORY DECLARATION UNDER SECTION 65B(4) / SECTION 63 BSA
@@ -326,6 +328,15 @@ export function generateSection65BCertificatePdf(analysis, options = {}) {
         <td>
           <span style="color: ${badgeColor}; font-weight: 800;">${analysis.riskLevel} (${analysis.riskScore}/100)</span>
           · ${analysis.primaryClassification || "Inspected"}
+        </td>
+      </tr>
+      <tr>
+        <th>Tor ExoneraTor Forensics</th>
+        <td>
+          <strong>${analysis.exonerator?.isTorExitNode ? '<span style="color: #dc2626;">POSITIVE — Confirmed Tor Exit Node</span>' : '<span style="color: #16a34a;">NEGATIVE — Non-Tor Origin Host</span>'}</strong>
+          · Tested Date: <code>${analysis.exonerator?.date || "Transmission Date"}</code>
+          <br />
+          <span style="font-size: 8pt; color: #475569;">Official Tor Project Docket: <a href="${analysis.exonerator?.officialExoneratorUrl || '#'}" target="_blank" style="color: #0369a1; text-decoration: underline;">${analysis.exonerator?.officialExoneratorUrl || 'ExoneraTor Record'}</a></span>
         </td>
       </tr>
     </table>

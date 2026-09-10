@@ -28,6 +28,7 @@ import { maskSensitiveText } from "../services/privacyService";
 import { generateInvestigativePdf } from "../services/pdfReportGenerator";
 import { generateSection65BCertificatePdf } from "../services/legalCertificateGenerator";
 import { lookupGeoIP, buildMapLinks } from "../services/geoIpService";
+import { checkExonerator, formatExoneratorDate, buildExoneratorUrl } from "../services/exoneratorService";
 
 export default function AnalyzeEmail({
   file,
@@ -46,6 +47,25 @@ export default function AnalyzeEmail({
   const [selectedIpNode, setSelectedIpNode] = useState(null);
   const [manualIpSearch, setManualIpSearch] = useState("");
   const [manualIpLoading, setManualIpLoading] = useState(false);
+  const [customExonIp, setCustomExonIp] = useState("");
+  const [customExonDate, setCustomExonDate] = useState("");
+  const [customExonResult, setCustomExonResult] = useState(null);
+  const [exonLoading, setExonLoading] = useState(false);
+
+  const handleVerifyExonerator = async (ipToTest, dateToTest) => {
+    const targetIp = (ipToTest || customExonIp || analysis?.earliestNodeIP || "").trim();
+    const targetDate = (dateToTest || customExonDate || analysis?.exonerator?.date || analysis?.date || "").trim();
+    if (!targetIp) return;
+    setExonLoading(true);
+    try {
+      const result = await checkExonerator(targetIp, targetDate);
+      setCustomExonResult(result);
+    } catch (err) {
+      console.error("ExoneraTor check failed:", err);
+    } finally {
+      setExonLoading(false);
+    }
+  };
 
   const handleSelectIP = async (ip) => {
     if (!ip) return;
@@ -533,6 +553,7 @@ export default function AnalyzeEmail({
               { id: "nlp", label: `NLP & BEC Cues (${analysis.nlpAudit?.detectedTriggers?.length || 0})`, icon: Zap },
               { id: "auth", label: "Protocol & Alignment", icon: ShieldCheck },
               { id: "route", label: `Mail Hop Trace (${analysis.hopTrace?.totalHops || 0})`, icon: Network },
+              { id: "exonerator", label: analysis.isTorExitNode ? "ExoneraTor (Tor Alert!)" : "ExoneraTor (Tor Forensics)", icon: ShieldAlert },
               { id: "origin", label: "Origin Radar & Geo", icon: Globe2 },
               { id: "attribution", label: "Attribution Graph", icon: Share2 },
               { id: "links", label: `IOCs & Links (${analysis.totalLinks})`, icon: Link2 },
@@ -671,6 +692,27 @@ export default function AnalyzeEmail({
                         ? `Typosquatting alert: Deceptively impersonates brand '${analysis.domainIntel.typosquattingTarget}'.`
                         : `Host: ${analysis.domainIntel?.hostingProvider || "Standard DNS"}`}
                     </p>
+                  </div>
+
+                  <div style={{ background: analysis.isTorExitNode ? "#fef2f2" : "#fff", padding: "12px", borderRadius: "8px", border: analysis.isTorExitNode ? "1px solid #f87171" : "1px solid #e2e8f0" }}>
+                    <span style={{ fontSize: "12px", color: analysis.isTorExitNode ? "#dc2626" : "#64748b", fontWeight: "700" }}>
+                      Tor ExoneraTor Verification:
+                    </span>
+                    <p style={{ margin: "4px 0 0", fontSize: "13px", color: analysis.isTorExitNode ? "#dc2626" : "#16a34a", fontWeight: "600" }}>
+                      {analysis.isTorExitNode
+                        ? `CONFIRMED: Tor Exit Node on ${analysis.exonerator?.date || "Transmission Date"}!`
+                        : `Verified Non-Tor Node for ${analysis.exonerator?.date || "Transmission Date"}`}
+                    </p>
+                    {analysis.officialExoneratorUrl && (
+                      <a
+                        href={analysis.officialExoneratorUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "11px", color: "#2563eb", marginTop: "4px", textDecoration: "underline" }}
+                      >
+                        <ExternalLink size={10} /> View Official Tor Project Docket
+                      </a>
+                    )}
                   </div>
                 </div>
               </div>
@@ -2256,6 +2298,255 @@ export default function AnalyzeEmail({
                   {piiRedacted ? maskSensitiveText(analysis.bodyPreview) : analysis.bodyPreview}
                 </pre>
               </div>
+            </div>
+          )}
+
+          {/* TAB: EXONERATOR (THE TOR PROJECT RELAY & EXIT NODE FORENSICS) */}
+          {activeTab === "exonerator" && (
+            <div>
+              {/* STATUS BANNER */}
+              {(() => {
+                const currentExon = customExonResult || analysis.exonerator || {};
+                const isTor = Boolean(currentExon.isTorExitNode);
+                const currentIp = currentExon.ip || analysis.earliestNodeIP || "N/A";
+                const currentDate = currentExon.date || formatExoneratorDate(analysis.date);
+                const docketUrl = currentExon.officialExoneratorUrl || buildExoneratorUrl(currentIp, currentDate);
+
+                return (
+                  <div>
+                    <div
+                      style={{
+                        padding: "16px 20px",
+                        borderRadius: "10px",
+                        background: isTor ? "linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)" : "linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)",
+                        border: isTor ? "1px solid #f87171" : "1px solid #86efac",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "16px",
+                        marginBottom: "20px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: "48px",
+                          height: "48px",
+                          borderRadius: "10px",
+                          background: isTor ? "#ef4444" : "#22c55e",
+                          color: "#fff",
+                          display: "grid",
+                          placeItems: "center",
+                          flexShrink: 0,
+                          boxShadow: "0 4px 10px rgba(0,0,0,0.12)",
+                        }}
+                      >
+                        {isTor ? <ShieldAlert size={26} /> : <ShieldCheck size={26} />}
+                      </div>
+
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                          <span
+                            style={{
+                              fontSize: "11px",
+                              fontWeight: "800",
+                              letterSpacing: "0.06em",
+                              textTransform: "uppercase",
+                              padding: "3px 9px",
+                              borderRadius: "4px",
+                              background: isTor ? "#dc2626" : "#16a34a",
+                              color: "#fff",
+                            }}
+                          >
+                            {isTor ? "CONFIRMED TOR EXIT NODE" : "NEGATIVE — CLEAN NON-TOR RELAY"}
+                          </span>
+                          <span style={{ fontSize: "13px", fontWeight: "700", color: isTor ? "#991b1b" : "#166534" }}>
+                            Confidence: {currentExon.confidence || "TorDNSEL Verified"}
+                          </span>
+                        </div>
+                        <p style={{ margin: "6px 0 0", fontSize: "13px", color: "#1e293b", lineHeight: "1.5" }}>
+                          {currentExon.summary || (isTor
+                            ? `IP ${currentIp} was verified operating as an active Tor exit node on ${currentDate}. Transmission was routed through onion encryption.`
+                            : `IP ${currentIp} showed no active Tor exit records on ${currentDate}.`)}
+                        </p>
+                      </div>
+
+                      <a
+                        href={docketUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          padding: "10px 16px",
+                          background: isTor ? "#991b1b" : "#0d2741",
+                          color: "#fff",
+                          borderRadius: "8px",
+                          textDecoration: "none",
+                          fontSize: "12px",
+                          fontWeight: "700",
+                          whiteSpace: "nowrap",
+                          boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+                        }}
+                      >
+                        <ExternalLink size={14} /> View Official ExoneraTor Docket
+                      </a>
+                    </div>
+
+                    {/* METRICS GRID */}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "14px", marginBottom: "24px" }}>
+                      <div style={{ background: "#f8fafc", padding: "14px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                        <span style={{ fontSize: "11px", color: "#64748b", fontWeight: "700", textTransform: "uppercase" }}>Investigated IP Address</span>
+                        <strong style={{ display: "block", fontSize: "15px", color: "#0f172a", marginTop: "4px", fontFamily: "monospace" }}>
+                          {currentIp}
+                        </strong>
+                      </div>
+
+                      <div style={{ background: "#f8fafc", padding: "14px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                        <span style={{ fontSize: "11px", color: "#64748b", fontWeight: "700", textTransform: "uppercase" }}>Evaluated Transmission Date</span>
+                        <strong style={{ display: "block", fontSize: "15px", color: "#0f172a", marginTop: "4px" }}>
+                          {currentDate}
+                        </strong>
+                      </div>
+
+                      <div style={{ background: "#f8fafc", padding: "14px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                        <span style={{ fontSize: "11px", color: "#64748b", fontWeight: "700", textTransform: "uppercase" }}>Relay Classification</span>
+                        <strong style={{ display: "block", fontSize: "15px", color: isTor ? "#dc2626" : "#16a34a", marginTop: "4px" }}>
+                          {currentExon.relayType || (isTor ? "Tor Exit Node" : "Standard Host")}
+                        </strong>
+                      </div>
+
+                      <div style={{ background: "#f8fafc", padding: "14px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                        <span style={{ fontSize: "11px", color: "#64748b", fontWeight: "700", textTransform: "uppercase" }}>Evidence Verification Source</span>
+                        <strong style={{ display: "block", fontSize: "15px", color: "#0f172a", marginTop: "4px" }}>
+                          {currentExon.source || "TorDNSEL + ExoneraTor"}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {/* INTERACTIVE HISTORICAL RE-QUERY TOOL */}
+                    <div
+                      style={{
+                        background: "#fff",
+                        border: "1px solid #cbd5e1",
+                        borderRadius: "10px",
+                        padding: "20px",
+                        marginBottom: "24px",
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+                      }}
+                    >
+                      <h3 style={{ margin: "0 0 8px", fontSize: "15px", color: "#0f172a", display: "flex", alignItems: "center", gap: "8px" }}>
+                        <Search size={16} /> Forensic ExoneraTor Historical Inspector
+                      </h3>
+                      <p style={{ margin: "0 0 16px", fontSize: "13px", color: "#64748b" }}>
+                        Test any IP address against any specific calendar date to verify historical Tor network participation at the exact time of message dispatch.
+                      </p>
+
+                      <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "flex-end" }}>
+                        <div style={{ flex: "1 1 200px" }}>
+                          <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "#475569", marginBottom: "4px" }}>
+                            Target IP Address:
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. 185.220.101.25"
+                            defaultValue={currentIp}
+                            onChange={(e) => setCustomExonIp(e.target.value)}
+                            style={{
+                              width: "100%",
+                              padding: "8px 12px",
+                              borderRadius: "6px",
+                              border: "1px solid #cbd5e1",
+                              fontSize: "13px",
+                              boxSizing: "border-box",
+                            }}
+                          />
+                        </div>
+
+                        <div style={{ flex: "1 1 160px" }}>
+                          <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "#475569", marginBottom: "4px" }}>
+                            Transmission Date:
+                          </label>
+                          <input
+                            type="date"
+                            defaultValue={currentDate}
+                            onChange={(e) => setCustomExonDate(e.target.value)}
+                            style={{
+                              width: "100%",
+                              padding: "8px 12px",
+                              borderRadius: "6px",
+                              border: "1px solid #cbd5e1",
+                              fontSize: "13px",
+                              boxSizing: "border-box",
+                            }}
+                          />
+                        </div>
+
+                        <button
+                          onClick={() => handleVerifyExonerator()}
+                          disabled={exonLoading}
+                          style={{
+                            padding: "9px 18px",
+                            background: "#0d2741",
+                            color: "#fff",
+                            border: 0,
+                            borderRadius: "6px",
+                            fontSize: "13px",
+                            fontWeight: "700",
+                            cursor: exonLoading ? "wait" : "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "8px",
+                          }}
+                        >
+                          {exonLoading ? "Querying Tor Authorities..." : "Verify on ExoneraTor"}
+                        </button>
+                      </div>
+
+                      {/* HOP SHORTCUTS IF MULTIPLE HOPS EXIST */}
+                      {analysis.hopTrace?.hops?.length > 0 && (
+                        <div style={{ marginTop: "16px", paddingTop: "14px", borderTop: "1px solid #f1f5f9" }}>
+                          <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748b", textTransform: "uppercase" }}>
+                            Quick Query from Email Received Hops:
+                          </span>
+                          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginTop: "8px" }}>
+                            {analysis.hopTrace.hops.map((hop, idx) => (
+                              <button
+                                key={idx}
+                                onClick={() => handleVerifyExonerator(hop.ip, currentDate)}
+                                style={{
+                                  padding: "4px 10px",
+                                  borderRadius: "4px",
+                                  border: "1px solid #cbd5e1",
+                                  background: "#f8fafc",
+                                  fontSize: "11px",
+                                  fontFamily: "monospace",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Hop {hop.hopIndex || idx + 1}: {hop.ip}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* JUDICIAL DOCKET REFERENCE */}
+                    <div style={{ background: "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0", padding: "16px" }}>
+                      <span style={{ fontSize: "11px", fontWeight: "700", color: "#475569", textTransform: "uppercase" }}>
+                        Judicial Evidence Admissibility (Section 65B IEA / Section 63 BSA):
+                      </span>
+                      <p style={{ margin: "6px 0 10px", fontSize: "12px", color: "#334155", lineHeight: "1.5" }}>
+                        ExoneraTor queries are based on consensus network status documents published hourly by The Tor Project's Directory Authorities.
+                        This electronic certification is integrated directly into generated Section 65B court evidence dossiers for criminal prosecution and cyber tribunal proceedings.
+                      </p>
+                      <div style={{ fontSize: "12px", fontFamily: "monospace", color: "#1e40af", wordBreak: "break-all" }}>
+                        Docket URI: <a href={docketUrl} target="_blank" rel="noreferrer" style={{ textDecoration: "underline" }}>{docketUrl}</a>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
         </section>

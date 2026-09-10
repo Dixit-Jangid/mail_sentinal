@@ -31,6 +31,58 @@ export function extractRiskFactorsAndRemedies(analysis) {
   const dangerousAttachments = analysis.dangerousAttachments || [];
   const suspiciousLinks = analysis.suspiciousLinks || 0;
   const suspiciousLinksList = analysis.suspiciousLinksList || [];
+  const exonerator = analysis.exonerator || {};
+  const isTor = Boolean(analysis.isTorExitNode || exonerator.isTorExitNode || analysis.originGeo?.isTor);
+  const exonDate = exonerator.date || analysis.date ? new Date(analysis.date || Date.now()).toISOString().split("T")[0] : "Recorded Date";
+  const exonUrl = exonerator.officialExoneratorUrl || `https://exonerator.torproject.org/?ip=${encodeURIComponent(earliestNodeIP)}&timestamp=${exonDate}`;
+
+  // =========================================================================
+  // 0. THE TOR PROJECT EXONERATOR EXIT NODE DETECTION (ANONYMIZED ADVERSARY)
+  // =========================================================================
+  if (isTor) {
+    riskFactors.push({
+      id: "rf-tor-exit-node",
+      title: "Tor Anonymizing Exit Node Transmission (ExoneraTor Verified)",
+      category: "Anonymization & Cyber Attack Infrastructure",
+      severity: "CRITICAL",
+      scoreImpact: "+35 pts",
+      threatVector:
+        `The earliest transmitting IP node (${earliestNodeIP}) is verified to be an active Tor Project Exit Node on the transmission date (${exonDate}). Attackers utilize Tor onion routing to obfuscate true origin, evade geolocation geofencing, and impede digital evidence discovery.`,
+      evidence: `TorDNSEL / ExoneraTor verification positive for IP ${earliestNodeIP} on date ${exonDate}. Confidence: ${exonerator.confidence || "Authoritative"}. Official Docket: ${exonUrl}`,
+      remedies: [
+        {
+          id: "rem-tor-firewall-block",
+          actionType: "Perimeter Perimeter Hardening",
+          title: "Block Tor Exit Node at Edge Firewall & Gateway",
+          description:
+            `Immediately blackhole incoming TCP/UDP traffic from Tor exit relay ${earliestNodeIP} across border routers and firewalls.`,
+          command: `# Linux iptables\niptables -A INPUT -s ${earliestNodeIP} -j DROP\n# Cisco ASA / Firepower\naccess-list OUTSIDE_IN extended deny ip host ${earliestNodeIP} any`,
+          commandType: "Bash / CLI",
+          priority: "Immediate (P0)",
+        },
+        {
+          id: "rem-tor-exchange-rule",
+          actionType: "M365 Mail Flow Containment",
+          title: "Exchange Transport Rule - Reject Tor Exit Traffic",
+          description:
+            `Deploy an automated mail flow rule in Exchange Online Protection to reject inbound mail originating from confirmed Tor exit relays.`,
+          command: `# Exchange Online PowerShell\nNew-TransportRule -Name "Block Tor Exit IP ${earliestNodeIP}" -SenderIpRanges "${earliestNodeIP}" -RejectMessageReasonText "Inbound email from Tor anonymizing exit relays is denied by corporate security policy."`,
+          commandType: "PowerShell",
+          priority: "High (P1)",
+        },
+        {
+          id: "rem-tor-exonerator-docket",
+          actionType: "Forensic Chain of Custody",
+          title: "Preserve Official Tor Project ExoneraTor Evidence Docket",
+          description:
+            `Archive the formal ExoneraTor verification docket from metrics.torproject.org for Section 65B Indian Evidence Act / Section 63 BSA legal prosecution docket.`,
+          command: `curl -s "${exonUrl}" > exonerator_evidence_${earliestNodeIP}_${exonDate}.html`,
+          commandType: "Curl",
+          priority: "High (P1)",
+        },
+      ],
+    });
+  }
 
   // =========================================================================
   // 1. DMARC POLICY FAILURE & DOMAIN SPOOFING

@@ -4,6 +4,7 @@ import { analyzeLinguisticsAndBEC } from "./nlpService";
 import { traceReceivedHops, auditHeaderProtocolAlignment } from "./headerTracer";
 import { determineAttribution, buildCorrelationGraph } from "./attributionService";
 import { lookupGeoIP, extractAllForensicIPs } from "./geoIpService";
+import { checkExonerator, formatExoneratorDate, buildExoneratorUrl } from "./exoneratorService";
 
 /**
  * Computes a SHA-256 hex string from an ArrayBuffer using Web Crypto API.
@@ -300,6 +301,34 @@ export async function analyzeEmlFile(file, customSettings = {}) {
     }
   }
 
+  // 10b. The Tor Project ExoneraTor Relay Verification (IP + Date)
+  let exonerator = null;
+  if (earliestNodeIP) {
+    try {
+      exonerator = await checkExonerator(earliestNodeIP, dateStr);
+    } catch (exErr) {
+      console.warn("ExoneraTor check failed:", exErr);
+    }
+  }
+  if (!exonerator && earliestNodeIP) {
+    exonerator = {
+      ip: earliestNodeIP,
+      date: formatExoneratorDate(dateStr),
+      isTorExitNode: Boolean(originGeo?.isTor),
+      isTorRelay: Boolean(originGeo?.isTor),
+      confidence: originGeo?.isTor ? "High (ISP/ASN Fingerprint)" : "Negative",
+      relayType: originGeo?.isTor ? "Tor Exit Node" : "Standard Internet Host",
+      threatLevel: originGeo?.isTor ? "Critical" : "Low",
+      threatScore: originGeo?.isTor ? 95 : 10,
+      officialExoneratorUrl: buildExoneratorUrl(earliestNodeIP, dateStr),
+      summary: originGeo?.isTor
+        ? `IP ${earliestNodeIP} flagged as Tor infrastructure.`
+        : `IP ${earliestNodeIP} showed no active Tor records.`,
+      source: "GeoIP Fallback",
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
   // 11. Attribution & Relationship Graph Engine
   const attribution = determineAttribution({
     spf,
@@ -345,6 +374,7 @@ export async function analyzeEmlFile(file, customSettings = {}) {
   else if (attachments.length > 0) riskScore += 5;
   if (hopTrace.isRelayManipulated) riskScore += 15;
   if (domainIntel && !domainIntel.hasMx) riskScore += 15;
+  if (exonerator?.isTorExitNode) riskScore += 35;
 
   riskScore = Math.min(Math.max(riskScore, 0), 100);
 
@@ -377,6 +407,12 @@ export async function analyzeEmlFile(file, customSettings = {}) {
     ];
   }
 
+  if (exonerator?.isTorExitNode) {
+    containmentActions.unshift(
+      `CRITICAL CONTAINMENT: Transmitting host (${earliestNodeIP}) verified as Tor Project Exit Node on message transmission date (${exonerator.date}). Enforce immediate gateway perimeter block.`
+    );
+  }
+
   // 14. Forensic Timeline Events
   const timestamp = new Date().toLocaleString();
   const timeline = [
@@ -384,6 +420,14 @@ export async function analyzeEmlFile(file, customSettings = {}) {
     { step: "MIME Header & Multipart Decoding", status: "Completed", detail: `${headers.length} headers parsed`, time: timestamp },
     { step: "NLP Linguistic & Urgency Analysis", status: "Completed", detail: `${nlpAudit.detectedTriggers.length} urgency triggers, ${nlpAudit.detectedBecPatterns.length} BEC markers`, time: timestamp },
     { step: "Header Hop Route & Earliest Node Trace", status: "Completed", detail: `${hopTrace.totalHops} hops analyzed, Origin: ${earliestNodeIP || "Internal"}`, time: timestamp },
+    {
+      step: "The Tor Project ExoneraTor Verification",
+      status: "Completed",
+      detail: exonerator?.isTorExitNode
+        ? `POSITIVE: Tor Exit Node on ${exonerator.date} (${exonerator.confidence})`
+        : `NEGATIVE: Non-Tor host on ${exonerator?.date || "transmission date"}`,
+      time: timestamp,
+    },
     { step: "SPF / DKIM / DMARC Protocol Alignment Audit", status: "Completed", detail: `SPF: ${spf}, DKIM: ${dkim}, DMARC: ${dmarc}`, time: timestamp },
     { step: "Live Domain Intelligence & WHOIS Fingerprinting", status: "Completed", detail: domainIntel?.hostingProvider || (dnsInfo?.hasMxRecords ? "Domain verified" : "Unverified"), time: timestamp },
     { step: "Identity Attribution & Correlation Topology", status: "Completed", detail: attribution.infrastructureType, time: timestamp },
@@ -414,6 +458,9 @@ export async function analyzeEmlFile(file, customSettings = {}) {
     protocolAudit,
     earliestNodeIP,
     originGeo,
+    exonerator,
+    isTorExitNode: Boolean(exonerator?.isTorExitNode),
+    officialExoneratorUrl: exonerator?.officialExoneratorUrl || buildExoneratorUrl(earliestNodeIP, dateStr),
     attribution,
     correlationGraph,
     containmentActions,
