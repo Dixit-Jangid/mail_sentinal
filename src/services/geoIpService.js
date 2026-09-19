@@ -116,7 +116,48 @@ export async function lookupGeoIP(ip) {
     return privateResult;
   }
 
-  // Provider 1: Direct high-precision call to ipwho.is (7-decimal GPS accuracy, postal, flag, timezone, ASN)
+  // Provider 1: ipapi.co — best CORS support on Netlify/Vercel
+  try {
+    const res = await fetch(`https://ipapi.co/${encodeURIComponent(cleanIp)}/json/`);
+    if (res.ok) {
+      const data = await res.json();
+      if (!data.error && data.country_name) {
+        const maps = buildMapLinks(data.latitude, data.longitude);
+        const result = {
+          ip: data.ip || cleanIp,
+          city: data.city || "Unknown City",
+          region: data.region || "Unknown Region",
+          country_name: data.country_name || "Unknown Country",
+          country_code: data.country_code || "UN",
+          country_flag: data.country_code ? `🌐` : "🌐",
+          flagSvg: null,
+          postal: data.postal || "N/A",
+          latitude: typeof data.latitude === "number" ? data.latitude : parseFloat(data.latitude) || 0,
+          longitude: typeof data.longitude === "number" ? data.longitude : parseFloat(data.longitude) || 0,
+          timezone: data.timezone || "UTC",
+          isp: data.org || "Internet Service Provider",
+          org: data.org || "Network Host",
+          asn: data.asn || "N/A",
+          isPrivate: false,
+          isVpn: false,
+          isTor: false,
+          isProxy: false,
+          vpnType: "Clean Direct Connection",
+          vpnConfidence: "None",
+          threatScore: 10,
+          accuracyStatus: "Real-Time (ipapi.co)",
+          sourceProvider: "ipapi.co",
+          ...maps,
+        };
+        geoCache.set(cleanIp, result);
+        return result;
+      }
+    }
+  } catch {
+    // Try next provider
+  }
+
+  // Provider 2: Direct high-precision call to ipwho.is
   try {
     const res = await fetch(`https://ipwho.is/${encodeURIComponent(cleanIp)}`);
     if (res.ok) {
@@ -139,6 +180,12 @@ export async function lookupGeoIP(ip) {
           org: data.connection?.org || data.connection?.domain || "Network Host",
           asn: data.connection?.asn ? `AS${data.connection.asn}` : "N/A",
           isPrivate: false,
+          isVpn: false,
+          isTor: false,
+          isProxy: false,
+          vpnType: "Clean Direct Connection",
+          vpnConfidence: "None",
+          threatScore: 10,
           accuracyStatus: "High-Precision GPS & Postal (ipwho.is)",
           sourceProvider: "ipwho.is High-Precision",
           ...maps,
@@ -148,15 +195,15 @@ export async function lookupGeoIP(ip) {
       }
     }
   } catch {
-    // Proceed to backend proxy fallback
+    // Try next provider
   }
 
-  // Provider 2: Local backend proxy /api/geoip
+  // Provider 3: Local backend proxy /api/geoip (only works when Express server running)
   try {
     const res = await fetch(`/api/geoip?ip=${encodeURIComponent(cleanIp)}`);
     if (res.ok) {
       const data = await res.json();
-      if (data && !data.error && data.country_name !== "Unknown Country" && (data.latitude !== 0 || data.longitude !== 0)) {
+      if (data && !data.error && data.country_name && data.country_name !== "Unknown Country" && (data.latitude !== 0 || data.longitude !== 0)) {
         const maps = buildMapLinks(data.latitude, data.longitude);
         const result = {
           ip: cleanIp,
@@ -173,6 +220,12 @@ export async function lookupGeoIP(ip) {
           org: data.org || data.isp || "Network Host",
           asn: data.asn || "N/A",
           isPrivate: false,
+          isVpn: data.isVpn || false,
+          isTor: data.isTor || false,
+          isProxy: data.isProxy || false,
+          vpnType: data.vpnType || "Clean Direct Connection",
+          vpnConfidence: data.vpnConfidence || "None",
+          threatScore: data.threatScore || 10,
           accuracyStatus: data.accuracyStatus || "Verified High Precision Telemetry",
           sourceProvider: "Backend Proxy",
           ...maps,
@@ -182,10 +235,10 @@ export async function lookupGeoIP(ip) {
       }
     }
   } catch {
-    // Proceed to tertiary provider
+    // Try next provider
   }
 
-  // Provider 3: FreeIPAPI fallback
+  // Provider 4: FreeIPAPI fallback
   try {
     const res = await fetch(`https://freeipapi.com/api/json/${encodeURIComponent(cleanIp)}`);
     if (res.ok) {
@@ -207,6 +260,12 @@ export async function lookupGeoIP(ip) {
           org: "Autonomous System Node",
           asn: data.asn ? `AS${data.asn}` : "N/A",
           isPrivate: false,
+          isVpn: false,
+          isTor: false,
+          isProxy: false,
+          vpnType: "Clean Direct Connection",
+          vpnConfidence: "None",
+          threatScore: 10,
           accuracyStatus: "Standard Precision GeoIP",
           sourceProvider: "FreeIPAPI",
           ...maps,
@@ -219,10 +278,10 @@ export async function lookupGeoIP(ip) {
     // End of fallbacks
   }
 
-  // If all live providers fail, return clean unlocated stub
-  return {
+  // All live providers failed — return graceful stub (never throw to caller)
+  const stubResult = {
     ip: cleanIp,
-    city: "Location Resolution Pending",
+    city: "Location Unresolvable",
     region: "Unknown",
     country_name: "External Public Node",
     country_code: "UN",
@@ -235,11 +294,19 @@ export async function lookupGeoIP(ip) {
     org: "Public Internet Node",
     asn: "N/A",
     isPrivate: false,
-    accuracyStatus: "Live lookup rate-limited or offline",
+    isVpn: false,
+    isTor: false,
+    isProxy: false,
+    vpnType: "Unknown (provider unreachable)",
+    vpnConfidence: "None",
+    threatScore: 0,
+    accuracyStatus: "All GeoIP providers unreachable — check internet connection",
     mapEmbedUrl: null,
     googleMapsUrl: null,
     openStreetMapUrl: null,
   };
+  geoCache.set(cleanIp, stubResult);
+  return stubResult;
 }
 
 /**

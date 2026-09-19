@@ -1,6 +1,7 @@
-import { Settings, Sliders, CheckCircle2, RotateCcw } from "lucide-react";
+import { Settings, Sliders, CheckCircle2, RotateCcw, Shield, Lock, EyeOff, FileCheck } from "lucide-react";
 import ModulePage from "../components/ModulePage";
 import { DEFAULT_SETTINGS } from "../services/emailAnalyzer";
+import { RETENTION_POLICIES, COMPLIANCE_FRAMEWORKS } from "../services/privacyService";
 
 export default function SettingsPage({ settings, setSettings }) {
   const handleChange = (key, value) => {
@@ -16,8 +17,8 @@ export default function SettingsPage({ settings, setSettings }) {
 
   return (
     <ModulePage
-      title="Platform Settings"
-      subtitle="Configure threat detection sensitivity, authentication strictness, and risk thresholds."
+      title="Platform Settings & Compliance Controls"
+      subtitle="Configure threat detection sensitivity, authentication strictness, risk thresholds, retention policies, and privacy controls."
       icon={<Settings size={28} />}
     >
       <div className="main-grid">
@@ -37,9 +38,9 @@ export default function SettingsPage({ settings, setSettings }) {
                 style={{ width: "18px", height: "18px" }}
               />
               <div>
-                <strong>Phishing Keyword Scanner</strong>
+                <strong>Phishing & Fraud Keyword Scanner</strong>
                 <span style={{ display: "block", fontSize: "12px", color: "#64748b" }}>
-                  Detect urgent calls-to-action, credential requests, and financial keywords.
+                  Detect urgent calls-to-action, credential requests, and financial rerouting keywords.
                 </span>
               </div>
             </label>
@@ -70,6 +71,21 @@ export default function SettingsPage({ settings, setSettings }) {
                 <strong>Email Authentication Audit (SPF, DKIM, DMARC)</strong>
                 <span style={{ display: "block", fontSize: "12px", color: "#64748b" }}>
                   Verify authentication headers and penalize spoofed senders.
+                </span>
+              </div>
+            </label>
+
+            <label style={{ display: "flex", alignItems: "center", gap: "12px", cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={settings.detectBecPatterns !== false}
+                onChange={(e) => handleChange("detectBecPatterns", e.target.checked)}
+                style={{ width: "18px", height: "18px" }}
+              />
+              <div>
+                <strong>Advanced BEC & Fraud Pattern Classifier</strong>
+                <span style={{ display: "block", fontSize: "12px", color: "#64748b" }}>
+                  Detect wire diversion, fake invoice, and executive impersonation patterns.
                 </span>
               </div>
             </label>
@@ -120,6 +136,77 @@ export default function SettingsPage({ settings, setSettings }) {
               <button className="secondary-button" onClick={resetDefaults} style={{ padding: "6px 12px", fontSize: "12px" }}>
                 <RotateCcw size={14} /> Reset Defaults
               </button>
+            </div>
+          </div>
+        </div>
+
+        {/* PRIVACY, RETENTION & COMPLIANCE CONTROLS */}
+        <div className="panel" style={{ gridColumn: "1 / -1" }}>
+          <h3 style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <Shield size={18} style={{ color: "#2563eb" }} /> Privacy, Data Retention & Compliance Controls
+          </h3>
+          <p>
+            Configure sensitive data masking, evidence retention policies, and compliance standards (GDPR, DPDP 2023, ISO 27701).
+          </p>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px", marginTop: "20px" }}>
+            {/* RETENTION POLICY SELECTION */}
+            <div>
+              <label style={{ fontSize: "12px", fontWeight: "700", color: "#0f172a", display: "block", marginBottom: "6px" }}>
+                Evidence Retention Policy
+              </label>
+              <select
+                value={settings.retentionPolicy || "90_days"}
+                onChange={(e) => handleChange("retentionPolicy", e.target.value)}
+                style={{ width: "100%", padding: "8px 12px", fontSize: "13px" }}
+              >
+                {RETENTION_POLICIES.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+              <span style={{ display: "block", fontSize: "12px", color: "#64748b", marginTop: "6px" }}>
+                {RETENTION_POLICIES.find((p) => p.id === (settings.retentionPolicy || "90_days"))?.description}
+              </span>
+
+              {/* DEFAULT PII REDACTION TOGGLE */}
+              <div style={{ marginTop: "18px" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(settings.defaultPiiRedacted)}
+                    onChange={(e) => handleChange("defaultPiiRedacted", e.target.checked)}
+                    style={{ width: "18px", height: "18px" }}
+                  />
+                  <div>
+                    <strong style={{ fontSize: "13px" }}>Default PII Data Masking Active</strong>
+                    <span style={{ display: "block", fontSize: "12px", color: "#64748b" }}>
+                      Automatically mask sender/recipient emails, IP subnets, bank accounts, and phone numbers in all generated reports.
+                    </span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* COMPLIANCE ATTESTATION FRAMEWORKS */}
+            <div style={{ background: "#f8fafc", padding: "16px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+              <strong style={{ fontSize: "13px", color: "#0f172a", display: "block", marginBottom: "10px" }}>
+                Active Compliance Frameworks
+              </strong>
+              <div style={{ display: "grid", gap: "8px" }}>
+                {COMPLIANCE_FRAMEWORKS.map((f) => (
+                  <div key={f.code} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px" }}>
+                    <div>
+                      <span style={{ fontWeight: "600", color: "#1e293b" }}>{f.name}</span>
+                      <span style={{ display: "block", fontSize: "11px", color: "#64748b" }}>{f.description}</span>
+                    </div>
+                    <span style={{ padding: "2px 8px", borderRadius: "4px", background: "#dcfce7", color: "#15803d", fontWeight: "700", fontSize: "10px", whiteSpace: "nowrap", marginLeft: "8px" }}>
+                      {f.badge}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>

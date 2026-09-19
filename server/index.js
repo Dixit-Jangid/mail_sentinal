@@ -167,6 +167,16 @@ const VPN_KEYWORDS = [
   "privacyfoundation", "privacyguard", "private internet",
 ];
 
+const RESIDENTIAL_PROXY_KEYWORDS = [
+  "oxylabs", "brightdata", "luminati", "smartproxy", "packetstream",
+  "webshare", "geonode", "netnut", "proxyrack", "stormproxies"
+];
+
+const BOTNET_KEYWORDS = [
+  "botnet", "spambot", "compromised", "cbl.abuseat", "zen.spamhaus",
+  "dynamic-ip", "cable-dyn", "pool.telecom", "pppoe-dyn"
+];
+
 function evaluateVpnThreat(data) {
   const isp = (data.isp || "").toLowerCase();
   const org = (data.org || "").toLowerCase();
@@ -179,10 +189,13 @@ function evaluateVpnThreat(data) {
   let isTor = false;
   let isProxy = Boolean(data.proxy);
   let isHosting = Boolean(data.hosting);
+  let isBotnet = false;
+  let isOpenRelay = false;
+  let isResidentialProxy = false;
   let threatScore = 10;
   let threatFlags = [];
 
-  // Tor detection
+  // 1. Tor detection
   if (combined.includes("tor") || combined.includes("torexit") || combined.includes("onion")) {
     isTor = true;
     isVpn = true;
@@ -192,7 +205,7 @@ function evaluateVpnThreat(data) {
     threatFlags.push("TOR_EXIT_NODE");
   }
 
-  // Direct proxy flag from ip-api
+  // 2. Direct proxy flag from ip-api
   if (data.proxy && !isTor) {
     isVpn = true;
     vpnType = "Commercial VPN / Anonymous Proxy";
@@ -201,8 +214,33 @@ function evaluateVpnThreat(data) {
     threatFlags.push("PROXY_DETECTED");
   }
 
-  // Hosting/datacenter with VPN keywords
-  if (data.hosting && !isTor) {
+  // 3. Residential Proxy Networks
+  for (const rkw of RESIDENTIAL_PROXY_KEYWORDS) {
+    if (combined.includes(rkw)) {
+      isResidentialProxy = true;
+      isProxy = true;
+      isVpn = true;
+      vpnType = "Residential Micro-Proxy Network (" + rkw.toUpperCase() + ")";
+      vpnConfidence = "High";
+      threatScore = Math.max(threatScore, 85);
+      threatFlags.push("RESIDENTIAL_PROXY_NETWORK");
+      break;
+    }
+  }
+
+  // 4. Botnet / Open-Relay Heuristics
+  for (const bkw of BOTNET_KEYWORDS) {
+    if (combined.includes(bkw)) {
+      isBotnet = true;
+      isOpenRelay = true;
+      threatScore = Math.max(threatScore, 88);
+      threatFlags.push("BOTNET_SUSPECT_NODE");
+      break;
+    }
+  }
+
+  // 5. Hosting/datacenter with VPN keywords
+  if (data.hosting && !isTor && !isResidentialProxy) {
     vpnType = "Datacenter / VPS / Relay Node";
     vpnConfidence = "Medium";
     threatScore = Math.max(threatScore, 55);
@@ -210,11 +248,11 @@ function evaluateVpnThreat(data) {
     isVpn = true;
   }
 
-  // Keyword-based detection
+  // 6. Keyword-based detection
   for (const kw of VPN_KEYWORDS) {
     if (combined.includes(kw)) {
       isVpn = true;
-      if (!isTor && !data.proxy) {
+      if (!isTor && !data.proxy && !isResidentialProxy) {
         vpnType = "Identified VPN Provider (" + kw.toUpperCase() + ")";
         vpnConfidence = "High";
         threatScore = Math.max(threatScore, 85);
@@ -224,7 +262,19 @@ function evaluateVpnThreat(data) {
     }
   }
 
-  return { isVpn, vpnType, vpnConfidence, isTor, isProxy, isHosting, threatScore, threatFlags };
+  return {
+    isVpn,
+    vpnType,
+    vpnConfidence,
+    isTor,
+    isProxy,
+    isHosting,
+    isBotnet,
+    isOpenRelay,
+    isResidentialProxy,
+    threatScore,
+    threatFlags,
+  };
 }
 
 /**
@@ -540,8 +590,8 @@ app.get("/api/dns-check", async (req, res) => {
 });
 
 /**
- * 4. REAL LIVE DOMAIN INTELLIGENCE & INFRASTRUCTURE FINGERPRINTING API
- * Gathers NS records, MX exchangers, A records, registrar heuristics, and brand typosquatting risk.
+ * 4. REAL LIVE DOMAIN INTELLIGENCE, RDAP WHOIS & INFRASTRUCTURE FINGERPRINTING API
+ * Queries real DNS records, live ICANN RDAP registration metadata, domain age, and brand lookalike risks.
  */
 app.get("/api/domain-intel", async (req, res) => {
   const domain = (req.query.domain || "").trim().toLowerCase();
@@ -563,34 +613,123 @@ app.get("/api/domain-intel", async (req, res) => {
       dns.resolveTxt(domain).then((r) => (txtRecords = r.flat())).catch(() => {}),
     ]);
 
-    // Brand Typosquatting & Impersonation Heuristic
-    const monitoredBrands = ["paypal", "microsoft", "google", "apple", "amazon", "netflix", "chase", "bankofamerica", "wellsfargo", "dhl", "fedex"];
+    // Live ICANN RDAP WHOIS Query
+    let registrar = "ICANN Accredited Registrar";
+    let registrarIanaId = null;
+    let creationDate = null;
+    let expirationDate = null;
+    let updatedDate = null;
+
+    try {
+      const rdapCtrl = new AbortController();
+      const rdapTimeout = setTimeout(() => rdapCtrl.abort(), 3500);
+      const rdapRes = await fetch(`https://rdap.org/domain/${encodeURIComponent(domain)}`, {
+        signal: rdapCtrl.signal,
+        headers: { Accept: "application/rdap+json, application/json" },
+      });
+      clearTimeout(rdapTimeout);
+
+      if (rdapRes.ok) {
+        const rdapData = await rdapRes.json();
+        // Parse events
+        if (Array.isArray(rdapData.events)) {
+          for (const ev of rdapData.events) {
+            if (ev.eventAction === "registration") creationDate = ev.eventDate;
+            else if (ev.eventAction === "expiration") expirationDate = ev.eventDate;
+            else if (ev.eventAction === "last changed") updatedDate = ev.eventDate;
+          }
+        }
+        // Parse registrar entity
+        if (Array.isArray(rdapData.entities)) {
+          const regEntity = rdapData.entities.find((e) =>
+            Array.isArray(e.roles) && e.roles.includes("registrar")
+          );
+          if (regEntity) {
+            registrar = regEntity.vcardArray?.[1]?.find((f) => f[0] === "fn")?.[3] || regEntity.handle || registrar;
+            registrarIanaId = regEntity.publicIds?.[0]?.identifier || null;
+          }
+        }
+      }
+    } catch {
+      // RDAP lookup non-blocking fallback
+    }
+
+    // Domain Age Calculation
+    let domainAgeDays = null;
+    let isNewlyRegistered = false;
+    if (creationDate) {
+      try {
+        const cDate = new Date(creationDate);
+        if (!isNaN(cDate.getTime())) {
+          domainAgeDays = Math.max(0, Math.floor((Date.now() - cDate.getTime()) / (1000 * 60 * 60 * 24)));
+          isNewlyRegistered = domainAgeDays <= 90;
+        }
+      } catch {}
+    }
+
+    // Comprehensive Brand Lookalike & Typosquatting Analysis
+    const monitoredBrands = [
+      "paypal", "microsoft", "google", "apple", "amazon", "netflix",
+      "chase", "bankofamerica", "wellsfargo", "citibank", "capitalone",
+      "dhl", "fedex", "ups", "docusign", "stripe", "coinbase", "binance",
+      "adobe", "dropbox", "salesforce", "zoom", "facebook", "meta"
+    ];
+
+    let typosquattingDetected = false;
     let typosquattingTarget = null;
+    let lookalikeTechnique = "None";
     const cleanName = domain.split(".")[0];
 
-    for (const brand of monitoredBrands) {
-      if (cleanName.includes(brand) && cleanName !== brand) {
-        typosquattingTarget = brand.toUpperCase();
-        break;
-      }
-      // Simple edit distance / character substitution (e.g., paypa1, micros0ft)
-      const normalized = cleanName.replace(/0/g, "o").replace(/1/g, "l").replace(/3/g, "e").replace(/5/g, "s");
-      if (normalized === brand && cleanName !== brand) {
-        typosquattingTarget = brand.toUpperCase();
-        break;
+    // Punycode / Homoglyph check
+    if (domain.startsWith("xn--") || domain.includes(".xn--")) {
+      typosquattingDetected = true;
+      typosquattingTarget = "Punycode IDN Homoglyph";
+      lookalikeTechnique = "IDN_HOMOGLYPH_PUNYCODE";
+    }
+
+    if (!typosquattingDetected) {
+      for (const brand of monitoredBrands) {
+        if (cleanName.includes(brand) && cleanName !== brand) {
+          typosquattingDetected = true;
+          typosquattingTarget = brand.toUpperCase();
+          lookalikeTechnique = "COMBOSQUATTING_SUBSTRING";
+          break;
+        }
+
+        const normalized = cleanName
+          .replace(/0/g, "o")
+          .replace(/1/g, "l")
+          .replace(/3/g, "e")
+          .replace(/5/g, "s")
+          .replace(/vv/g, "w");
+
+        if (normalized === brand && cleanName !== brand) {
+          typosquattingDetected = true;
+          typosquattingTarget = brand.toUpperCase();
+          lookalikeTechnique = "CHARACTER_SUBSTITUTION";
+          break;
+        }
       }
     }
 
-    // Host Fingerprinting based on NS and A records
-    let hostingProvider = "Independent / Private Registrar";
+    // Host & MX Fingerprinting
+    let hostingProvider = "Independent Infrastructure";
     const nsJoined = nsRecords.join(" ").toLowerCase();
-    if (nsJoined.includes("cloudflare")) hostingProvider = "Cloudflare Infrastructure";
+    if (nsJoined.includes("cloudflare")) hostingProvider = "Cloudflare Global Anycast";
     else if (nsJoined.includes("awsdns") || nsJoined.includes("amazon")) hostingProvider = "Amazon Web Services (AWS)";
     else if (nsJoined.includes("google") || nsJoined.includes("googledomains")) hostingProvider = "Google Cloud Platform";
     else if (nsJoined.includes("azure") || nsJoined.includes("microsoft")) hostingProvider = "Microsoft Azure";
-    else if (nsJoined.includes("namecheap")) hostingProvider = "Namecheap Registrar";
-    else if (nsJoined.includes("godaddy") || nsJoined.includes("domaincontrol")) hostingProvider = "GoDaddy DNS";
-    else if (nsJoined.includes("ovh")) hostingProvider = "OVH Hosting";
+    else if (nsJoined.includes("namecheap")) hostingProvider = "Namecheap DNS";
+    else if (nsJoined.includes("godaddy") || nsJoined.includes("domaincontrol")) hostingProvider = "GoDaddy Infrastructure";
+    else if (nsJoined.includes("ovh")) hostingProvider = "OVHcloud";
+
+    // MX Provider Classification
+    const mxJoined = mxRecords.map((m) => (m.exchange || String(m))).join(" ").toLowerCase();
+    let mxClassification = "Custom / Self-Hosted MTA";
+    if (mxJoined.includes("google") || mxJoined.includes("aspmx")) mxClassification = "Google Workspace (Enterprise)";
+    else if (mxJoined.includes("outlook") || mxJoined.includes("protection.outlook.com")) mxClassification = "Microsoft 365 (Exchange Online)";
+    else if (mxJoined.includes("pphosted") || mxJoined.includes("proofpoint")) mxClassification = "Proofpoint Secure Gateway";
+    else if (mxJoined.includes("mimecast")) mxClassification = "Mimecast Email Security";
 
     return res.json({
       domain,
@@ -599,16 +738,53 @@ app.get("/api/domain-intel", async (req, res) => {
       mxRecords,
       txtRecords,
       hasMx: mxRecords.length > 0,
+      mxClassification,
       hostingProvider,
-      typosquattingDetected: Boolean(typosquattingTarget),
+      registrar,
+      registrarIanaId,
+      creationDate,
+      expirationDate,
+      updatedDate,
+      domainAgeDays,
+      isNewlyRegistered,
+      typosquattingDetected,
       typosquattingTarget,
+      lookalikeTechnique,
       isRegistered: aRecords.length > 0 || nsRecords.length > 0 || mxRecords.length > 0,
-      reputationScore: typosquattingTarget ? 15 : (mxRecords.length > 0 ? 95 : 50),
+      reputationScore: typosquattingDetected ? 15 : isNewlyRegistered ? 35 : (mxRecords.length > 0 ? 95 : 50),
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
     console.error("Domain intelligence query error:", error);
     return res.status(500).json({ error: "Domain intelligence query failed." });
+  }
+});
+
+/**
+ * 4b. REAL LIVE WHOIS / RDAP LOOKUP ENDPOINT
+ */
+app.get("/api/whois", async (req, res) => {
+  const domain = (req.query.domain || "").trim().toLowerCase();
+  if (!domain || !domain.includes(".")) {
+    return res.status(400).json({ error: "A valid domain name is required." });
+  }
+
+  try {
+    const rdapCtrl = new AbortController();
+    const rdapTimeout = setTimeout(() => rdapCtrl.abort(), 4500);
+    const rdapRes = await fetch(`https://rdap.org/domain/${encodeURIComponent(domain)}`, {
+      signal: rdapCtrl.signal,
+      headers: { Accept: "application/rdap+json, application/json" },
+    });
+    clearTimeout(rdapTimeout);
+
+    if (rdapRes.ok) {
+      const data = await rdapRes.json();
+      return res.json({ success: true, domain, rdap: data, source: "ICANN RDAP" });
+    }
+    return res.json({ success: false, domain, error: "Domain RDAP record not found or privacy shielded." });
+  } catch (err) {
+    return res.status(502).json({ error: "RDAP service query failed.", details: err.message });
   }
 });
 

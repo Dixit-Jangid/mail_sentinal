@@ -1,10 +1,14 @@
 import PostalMime from "postal-mime";
 import { detectLanguage } from "./languageService";
 import { analyzeLinguisticsAndBEC } from "./nlpService";
-import { traceReceivedHops, auditHeaderProtocolAlignment } from "./headerTracer";
+import { traceReceivedHops, auditHeaderProtocolAlignment, auditThreeWayCorrelation } from "./headerTracer";
 import { determineAttribution, buildCorrelationGraph } from "./attributionService";
 import { lookupGeoIP, extractAllForensicIPs } from "./geoIpService";
 import { checkExonerator, formatExoneratorDate, buildExoneratorUrl } from "./exoneratorService";
+import { classifyEmailThreat } from "./aiClassifierService";
+import { detectAdvancedFraudPatterns } from "./fraudDetectionService";
+import { resolveDomainIntelligence } from "./domainIntelService";
+import { recordCustodyEvent } from "./chainOfCustodyService";
 
 /**
  * Computes a SHA-256 hex string from an ArrayBuffer using Web Crypto API.
@@ -141,9 +145,10 @@ export async function analyzeEmlFile(file, customSettings = {}) {
     });
   }
 
-  // 4. Header Protocol & Relay Route Tracer
+  // 4. Header Protocol, 3-Way Correlation & Relay Route Tracer
   const hopTrace = traceReceivedHops(headers);
   const protocolAudit = auditHeaderProtocolAlignment(parsedEmail, headers);
+  const threeWayAudit = protocolAudit.threeWayAudit || auditThreeWayCorrelation(parsedEmail, headers);
 
   // 5. Authentication Verification (SPF, DKIM, DMARC)
   const authenticationResults = getHeader("authentication-results").toLowerCase();
@@ -185,7 +190,7 @@ export async function analyzeEmlFile(file, customSettings = {}) {
     }
   }
 
-  // 6. IP Addresses & Earliest Sending Node (Precision Forensics)
+  // 6. IP Addresses & Earliest Sending Node
   const allReceivedText = headers
     .filter((h) => h?.key?.toLowerCase() === "received")
     .map((h) => h.value)
@@ -227,71 +232,27 @@ export async function analyzeEmlFile(file, customSettings = {}) {
   const messageId = getHeader("message-id") || parsedEmail.messageId || `urn:uuid:${Math.random().toString(36).substring(2)}`;
   const dateStr = parsedEmail.date || getHeader("date") || new Date().toISOString();
 
-  // 9. Real-Time Domain Intelligence Query (with Browser-Native DoH Fallback)
+  // 9. Advanced Fraud Pattern Detection Engine
+  const fraudAudit = detectAdvancedFraudPatterns({
+    subject,
+    bodyText,
+    headers,
+    replyToMismatch: threeWayAudit.replyToMismatch,
+    displayNameSpoofing: protocolAudit.displayNameSpoofing,
+    dangerousAttachmentsCount: dangerousAttachments.length,
+  });
+
+  // 10. Real-Time Domain Intelligence & RDAP/WHOIS Query
   let domainIntel = null;
-  let dnsInfo = null;
   if (senderDomain && senderDomain.includes(".")) {
     try {
-      const [dnsRes, intelRes] = await Promise.allSettled([
-        fetch(`/api/dns-check?domain=${encodeURIComponent(senderDomain)}`),
-        fetch(`/api/domain-intel?domain=${encodeURIComponent(senderDomain)}`),
-      ]);
-      if (dnsRes.status === "fulfilled" && dnsRes.value.ok) {
-        dnsInfo = await dnsRes.value.json();
-      }
-      if (intelRes.status === "fulfilled" && intelRes.value.ok) {
-        domainIntel = await intelRes.value.json();
-      }
+      domainIntel = await resolveDomainIntelligence(senderDomain);
     } catch {
       // Non-blocking
     }
-
-    // Direct Browser DNS-over-HTTPS (DoH) Fallback if local backend is offline/unreachable
-    if (!dnsInfo) {
-      try {
-        const [mxRes, txtRes, dmarcRes] = await Promise.allSettled([
-          fetch(`https://dns.google/resolve?name=${encodeURIComponent(senderDomain)}&type=MX`),
-          fetch(`https://dns.google/resolve?name=${encodeURIComponent(senderDomain)}&type=TXT`),
-          fetch(`https://dns.google/resolve?name=_dmarc.${encodeURIComponent(senderDomain)}&type=TXT`),
-        ]);
-
-        let hasMx = false;
-        let spfRecord = null;
-        let dmarcRecord = null;
-
-        if (mxRes.status === "fulfilled" && mxRes.value.ok) {
-          const mxData = await mxRes.value.json();
-          hasMx = Array.isArray(mxData.Answer) && mxData.Answer.length > 0;
-        }
-        if (txtRes.status === "fulfilled" && txtRes.value.ok) {
-          const txtData = await txtRes.value.json();
-          const txtAnswers = txtData.Answer?.map((a) => a.data?.replace(/^"|"$/g, "")) || [];
-          spfRecord = txtAnswers.find((t) => t.toLowerCase().startsWith("v=spf1")) || null;
-        }
-        if (dmarcRes.status === "fulfilled" && dmarcRes.value.ok) {
-          const dmarcData = await dmarcRes.value.json();
-          const dmarcAnswers = dmarcData.Answer?.map((a) => a.data?.replace(/^"|"$/g, "")) || [];
-          dmarcRecord = dmarcAnswers.find((t) => t.toLowerCase().startsWith("v=dmarc1")) || null;
-        }
-
-        dnsInfo = {
-          domain: senderDomain,
-          hasMxRecords: hasMx,
-          hasSpfRecord: Boolean(spfRecord),
-          spfRecord,
-          hasDmarcRecord: Boolean(dmarcRecord),
-          dmarcRecord,
-          domainValid: hasMx || Boolean(spfRecord),
-          provider: "Google DNS-over-HTTPS (DoH)",
-          timestamp: new Date().toISOString(),
-        };
-      } catch {
-        // Safe fallback
-      }
-    }
   }
 
-  // 10. Origin Geolocation Resolution (High-Precision Multi-Tier Engine)
+  // 11. Origin Geolocation Resolution
   let originGeo = null;
   if (earliestNodeIP) {
     try {
@@ -301,7 +262,7 @@ export async function analyzeEmlFile(file, customSettings = {}) {
     }
   }
 
-  // 10b. The Tor Project ExoneraTor Relay Verification (IP + Date)
+  // 12. The Tor Project ExoneraTor Relay Verification (IP + Date)
   let exonerator = null;
   if (earliestNodeIP) {
     try {
@@ -329,14 +290,36 @@ export async function analyzeEmlFile(file, customSettings = {}) {
     };
   }
 
-  // 11. Attribution & Relationship Graph Engine
+  // 13. AI/ML 5-Class Threat Classification
+  const aiClassification = classifyEmailThreat({
+    subject,
+    bodyText,
+    spf,
+    dkim,
+    dmarc,
+    protocolAudit,
+    nlpAudit,
+    fraudPatterns: fraudAudit.patterns,
+    suspiciousLinksCount: suspiciousLinks.length,
+    dangerousAttachmentsCount: dangerousAttachments.length,
+    totalUrlsCount: urls.length,
+    domainIntel,
+    originGeo,
+    isTorExitNode: Boolean(exonerator?.isTorExitNode),
+    hopTrace,
+  });
+
+  // 14. Attribution & Relationship Graph Engine
   const attribution = determineAttribution({
     spf,
     dkim,
     dmarc,
     protocolAudit,
     nlpAudit,
+    fraudPatterns: fraudAudit.patterns,
     originGeo,
+    domainIntel,
+    isTorExitNode: Boolean(exonerator?.isTorExitNode),
     detectedKeywords,
     suspiciousLinks: suspiciousLinks.length,
   });
@@ -346,35 +329,39 @@ export async function analyzeEmlFile(file, customSettings = {}) {
     fromDomain: senderDomain,
     replyTo: protocolAudit.replyTo,
     originIP: earliestNodeIP,
-    mxRecords: domainIntel?.mxRecords || dnsInfo?.mxRecords || [],
+    mxRecords: domainIntel?.mxRecords || [],
     suspiciousLinks,
-    detectedKeywords,
     fileName: file.name,
+    campaignTag: attribution.campaignTag,
+    infrastructureType: attribution.infrastructureType,
   });
 
-  // 12. Multi-Factor Fraud & Threat Score Calculation
+  // 15. Multi-Factor Fraud & Threat Score Calculation
   let riskScore = 0;
 
-  // NLP & BEC points (up to 40)
-  riskScore += nlpAudit.becScore;
-  riskScore += Math.min(nlpAudit.urgencyScore, 20);
+  // Fraud & BEC points
+  riskScore += Math.min(fraudAudit.totalFraudScore, 45);
+  riskScore += Math.min(nlpAudit.urgencyScore, 15);
 
   // Authentication & Spoofing points
   if (spf === "Fail") riskScore += 10;
   if (dkim === "Fail") riskScore += 10;
   if (dmarc === "Fail") riskScore += 12;
-  if (protocolAudit.replyToMismatch) riskScore += 20;
+  if (threeWayAudit.replyToMismatch) riskScore += 25;
+  if (threeWayAudit.freeWebmailRedirectTrap) riskScore += 15;
   if (protocolAudit.displayNameSpoofing) riskScore += 25;
-  if (domainIntel?.typosquattingDetected) riskScore += 25;
+  if (domainIntel?.typosquattingDetected) riskScore += 30;
+  if (domainIntel?.domainAge?.isNewlyRegistered) riskScore += 20;
 
   // Infrastructure & Links points
   if (urls.length > 0) riskScore += 5;
-  if (suspiciousLinks.length > 0) riskScore += Math.min(suspiciousLinks.length * 10, 25);
-  if (dangerousAttachments.length > 0) riskScore += 30;
+  if (suspiciousLinks.length > 0) riskScore += Math.min(suspiciousLinks.length * 12, 30);
+  if (dangerousAttachments.length > 0) riskScore += 35;
   else if (attachments.length > 0) riskScore += 5;
   if (hopTrace.isRelayManipulated) riskScore += 15;
   if (domainIntel && !domainIntel.hasMx) riskScore += 15;
   if (exonerator?.isTorExitNode) riskScore += 35;
+  if (originGeo?.isResidentialProxy) riskScore += 25;
 
   riskScore = Math.min(Math.max(riskScore, 0), 100);
 
@@ -385,14 +372,14 @@ export async function analyzeEmlFile(file, customSettings = {}) {
     riskLevel = "Medium Risk";
   }
 
-  // 13. High-Priority Containment Recommendation
+  // 16. High-Priority Containment Recommendation
   let containmentActions;
   if (riskScore >= 70) {
     containmentActions = [
       "Quarantine email message across corporate mail gateways immediately.",
       `Block sender domain (${senderDomain || "Origin Domain"}) and earliest sending node (${earliestNodeIP || "Origin IP"}).`,
       "Notify recipients to not click any embedded links or open attachments.",
-      protocolAudit.replyToMismatch ? `Add alternate redirect (${protocolAudit.replyTo}) to mail blocklist.` : "Alert Incident Response / SOC Team.",
+      threeWayAudit.replyToMismatch ? `Add alternate redirect (${threeWayAudit.matrix.replyTo.address}) to mail blocklist.` : "Alert Incident Response / SOC Team.",
     ];
   } else if (riskScore >= 40) {
     containmentActions = [
@@ -413,13 +400,24 @@ export async function analyzeEmlFile(file, customSettings = {}) {
     );
   }
 
-  // 14. Forensic Timeline Events
+  // 17. Forensic Timeline Events
   const timestamp = new Date().toLocaleString();
+  const analysisId = `scan-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+
+  // Record Chain of Custody Ingestion Event
+  recordCustodyEvent(analysisId, {
+    action: "EVIDENCE_INGESTION",
+    details: `Ingested evidence file '${file.name}' (${(file.size / 1024).toFixed(1)} KB). Cryptographic SHA-256 digest computed.`,
+    sha256,
+  });
+
   const timeline = [
     { step: "File Ingestion & SHA-256 Hash Computation", status: "Completed", hash: sha256.substring(0, 16) + "...", time: timestamp },
     { step: "MIME Header & Multipart Decoding", status: "Completed", detail: `${headers.length} headers parsed`, time: timestamp },
-    { step: "NLP Linguistic & Urgency Analysis", status: "Completed", detail: `${nlpAudit.detectedTriggers.length} urgency triggers, ${nlpAudit.detectedBecPatterns.length} BEC markers`, time: timestamp },
-    { step: "Header Hop Route & Earliest Node Trace", status: "Completed", detail: `${hopTrace.totalHops} hops analyzed, Origin: ${earliestNodeIP || "Internal"}`, time: timestamp },
+    { step: "AI/ML 5-Class Classifier Inference", status: "Completed", detail: `${aiClassification.primaryClass} (${aiClassification.confidence}% confidence)`, time: timestamp },
+    { step: "Advanced Fraud-Pattern Detection", status: "Completed", detail: `${fraudAudit.detectedCount} fraud patterns confirmed`, time: timestamp },
+    { step: "3-Way Header Correlation Matrix", status: "Completed", detail: threeWayAudit.correlationStatus, time: timestamp },
+    { step: "Header Hop Route & Anomaly Trace", status: "Completed", detail: `${hopTrace.totalHops} hops analyzed, Origin: ${earliestNodeIP || "Internal"}`, time: timestamp },
     {
       step: "The Tor Project ExoneraTor Verification",
       status: "Completed",
@@ -429,13 +427,13 @@ export async function analyzeEmlFile(file, customSettings = {}) {
       time: timestamp,
     },
     { step: "SPF / DKIM / DMARC Protocol Alignment Audit", status: "Completed", detail: `SPF: ${spf}, DKIM: ${dkim}, DMARC: ${dmarc}`, time: timestamp },
-    { step: "Live Domain Intelligence & WHOIS Fingerprinting", status: "Completed", detail: domainIntel?.hostingProvider || (dnsInfo?.hasMxRecords ? "Domain verified" : "Unverified"), time: timestamp },
+    { step: "Live Domain Intelligence & RDAP/WHOIS Fingerprinting", status: "Completed", detail: domainIntel?.hostingProvider || "Domain checked", time: timestamp },
     { step: "Identity Attribution & Correlation Topology", status: "Completed", detail: attribution.infrastructureType, time: timestamp },
     { step: "Risk Finalization & Tamper-Evident Ledger Entry", status: "Completed", detail: `Score: ${riskScore}/100 (${riskLevel})`, time: timestamp },
   ];
 
   return {
-    id: `scan-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    id: analysisId,
     fileName: file.name,
     fileSize: file.size,
     sha256,
@@ -444,15 +442,18 @@ export async function analyzeEmlFile(file, customSettings = {}) {
     from: senderAddress,
     fromName: senderName,
     senderDomain,
-    dnsInfo,
     domainIntel,
     to: recipient,
     date: dateStr,
     messageId,
     riskScore,
     riskLevel,
-    primaryClassification: nlpAudit.primaryClassification,
-    classificationConfidence: nlpAudit.classificationConfidence,
+    aiClassification,
+    primaryClassification: aiClassification.metadata.label,
+    classificationConfidence: aiClassification.confidence,
+    threatDistribution: aiClassification.distribution,
+    fraudAudit,
+    threeWayAudit,
     nlpAudit,
     hopTrace,
     protocolAudit,
@@ -464,7 +465,7 @@ export async function analyzeEmlFile(file, customSettings = {}) {
     attribution,
     correlationGraph,
     containmentActions,
-    phishingDetected: riskScore >= 50 || nlpAudit.detectedBecPatterns.length > 0 || detectedKeywords.length > 0,
+    phishingDetected: riskScore >= 50 || fraudAudit.hasActiveFraud || detectedKeywords.length > 0,
     suspiciousLinkDetected: suspiciousLinks.length > 0,
     totalLinks: urls.length,
     suspiciousLinks: suspiciousLinks.length,

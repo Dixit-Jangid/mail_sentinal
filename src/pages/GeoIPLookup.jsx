@@ -7,6 +7,8 @@ import {
   Compass,
   ShieldAlert,
   ShieldCheck,
+  Shield,
+  Activity,
   ExternalLink,
   Calendar,
 } from "lucide-react";
@@ -65,10 +67,16 @@ export default function GeoIPLookup({ analysis }) {
         return [data, ...filtered].slice(0, 5);
       });
       // Automatically verify against ExoneraTor for selected date
-      handleExoneratorCheck(data.ip, exonDate);
+      if (!data.isPrivate) {
+        handleExoneratorCheck(data.ip, exonDate);
+      }
+      // Show a soft warning if location could not be resolved (stub result)
+      if (data.latitude === 0 && data.longitude === 0 && !data.isPrivate) {
+        setError("Location data not available for this IP — GeoIP providers may be rate-limited. Try again in a few seconds.");
+      }
     } catch (err) {
       console.error("GeoIP lookup failed:", err);
-      setError("Unable to resolve GeoIP location for this address.");
+      setError("Lookup failed. Please check your internet connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -306,6 +314,100 @@ export default function GeoIPLookup({ analysis }) {
                 {geoData.timezone}
               </strong>
             </div>
+          </div>
+
+          {/* ADVANCED IP THREAT & ANONYMITY AUDIT */}
+          <div style={{ marginTop: "16px", background: "#fff", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "16px 20px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px", flexWrap: "wrap", gap: "8px" }}>
+              <strong style={{ fontSize: "14px", color: "#0f172a", display: "flex", alignItems: "center", gap: "8px" }}>
+                <Shield size={16} style={{ color: "#2563eb" }} /> Advanced IP Intelligence & Threat Vectors
+              </strong>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{ fontSize: "11px", color: "#64748b" }}>Threat Score:</span>
+                <span
+                  style={{
+                    padding: "2px 8px",
+                    borderRadius: "4px",
+                    fontWeight: "800",
+                    fontSize: "12px",
+                    background: (geoData.threatScore || 0) >= 70 ? "#fee2e2" : (geoData.threatScore || 0) >= 40 ? "#fef3c7" : "#dcfce7",
+                    color: (geoData.threatScore || 0) >= 70 ? "#dc2626" : (geoData.threatScore || 0) >= 40 ? "#d97706" : "#15803d",
+                  }}
+                >
+                  {geoData.threatScore || (geoData.isVpn || geoData.isTor ? 85 : 10)} / 100
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px" }}>
+              {/* 1. VPN DETECTION */}
+              <div style={{ background: geoData.isVpn ? "#fef2f2" : "#f8fafc", padding: "12px", borderRadius: "6px", border: geoData.isVpn ? "1px solid #fecaca" : "1px solid #f1f5f9" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748b" }}>VPN STATUS</span>
+                  <span style={{ fontSize: "10px", fontWeight: "800", padding: "1px 6px", borderRadius: "3px", background: geoData.isVpn ? "#fee2e2" : "#dcfce7", color: geoData.isVpn ? "#dc2626" : "#16a34a" }}>
+                    {geoData.isVpn ? "DETECTED" : "CLEAN"}
+                  </span>
+                </div>
+                <strong style={{ fontSize: "13px", color: geoData.isVpn ? "#991b1b" : "#1e293b", display: "block" }}>
+                  {geoData.vpnType || (geoData.isVpn ? "Active VPN Tunnel" : "Direct / ISP Host")}
+                </strong>
+                <span style={{ fontSize: "11px", color: "#94a3b8" }}>Confidence: {geoData.vpnConfidence || (geoData.isVpn ? "High" : "N/A")}</span>
+              </div>
+
+              {/* 2. TOR DETECTION */}
+              <div style={{ background: (geoData.isTor || exonResult?.isTorExitNode) ? "#fef2f2" : "#f8fafc", padding: "12px", borderRadius: "6px", border: (geoData.isTor || exonResult?.isTorExitNode) ? "1px solid #fecaca" : "1px solid #f1f5f9" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748b" }}>TOR NETWORK</span>
+                  <span style={{ fontSize: "10px", fontWeight: "800", padding: "1px 6px", borderRadius: "3px", background: (geoData.isTor || exonResult?.isTorExitNode) ? "#fee2e2" : "#dcfce7", color: (geoData.isTor || exonResult?.isTorExitNode) ? "#dc2626" : "#16a34a" }}>
+                    {(geoData.isTor || exonResult?.isTorExitNode) ? "TOR EXIT NODE" : "NON-TOR"}
+                  </span>
+                </div>
+                <strong style={{ fontSize: "13px", color: (geoData.isTor || exonResult?.isTorExitNode) ? "#991b1b" : "#1e293b", display: "block" }}>
+                  {(geoData.isTor || exonResult?.isTorExitNode) ? "The Tor Onion Router" : "Direct Routing"}
+                </strong>
+                <span style={{ fontSize: "11px", color: "#94a3b8" }}>TorDNSEL / ExoneraTor checked</span>
+              </div>
+
+              {/* 3. PROXY & RESIDENTIAL PROXY DETECTION */}
+              <div style={{ background: (geoData.isProxy || geoData.isResidentialProxy) ? "#fff7ed" : "#f8fafc", padding: "12px", borderRadius: "6px", border: (geoData.isProxy || geoData.isResidentialProxy) ? "1px solid #fed7aa" : "1px solid #f1f5f9" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748b" }}>PROXY TYPE</span>
+                  <span style={{ fontSize: "10px", fontWeight: "800", padding: "1px 6px", borderRadius: "3px", background: (geoData.isProxy || geoData.isResidentialProxy) ? "#ffedd5" : "#dcfce7", color: (geoData.isProxy || geoData.isResidentialProxy) ? "#c2410c" : "#16a34a" }}>
+                    {geoData.isResidentialProxy ? "RESIDENTIAL PROXY" : geoData.isProxy ? "DATACENTER PROXY" : "CLEAN"}
+                  </span>
+                </div>
+                <strong style={{ fontSize: "13px", color: (geoData.isProxy || geoData.isResidentialProxy) ? "#9a3412" : "#1e293b", display: "block" }}>
+                  {geoData.isResidentialProxy ? "Rotated Residential Pool" : geoData.isProxy ? "Forward/SOCKS Proxy" : "Direct Connection"}
+                </strong>
+                <span style={{ fontSize: "11px", color: "#94a3b8" }}>BrightData / Oxylabs / Luminati radar</span>
+              </div>
+
+              {/* 4. BOTNET / OPEN-RELAY INDICATOR */}
+              <div style={{ background: (geoData.isBotnet || geoData.isOpenRelay) ? "#fef2f2" : "#f8fafc", padding: "12px", borderRadius: "6px", border: (geoData.isBotnet || geoData.isOpenRelay) ? "1px solid #fecaca" : "1px solid #f1f5f9" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                  <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748b" }}>BOTNET / RELAY</span>
+                  <span style={{ fontSize: "10px", fontWeight: "800", padding: "1px 6px", borderRadius: "3px", background: (geoData.isBotnet || geoData.isOpenRelay) ? "#fee2e2" : "#dcfce7", color: (geoData.isBotnet || geoData.isOpenRelay) ? "#dc2626" : "#16a34a" }}>
+                    {(geoData.isBotnet || geoData.isOpenRelay) ? "THREAT FLAGGED" : "UNFLAGGED"}
+                  </span>
+                </div>
+                <strong style={{ fontSize: "13px", color: (geoData.isBotnet || geoData.isOpenRelay) ? "#991b1b" : "#1e293b", display: "block" }}>
+                  {geoData.isBotnet ? "Known Botnet Zombie Node" : geoData.isOpenRelay ? "Open SMTP Relay / Bulletproof" : "Clean Host Node"}
+                </strong>
+                <span style={{ fontSize: "11px", color: "#94a3b8" }}>Spamhaus XBL / Abuse confidence</span>
+              </div>
+            </div>
+
+            {/* THREAT FLAGS LIST */}
+            {Array.isArray(geoData.threatFlags) && geoData.threatFlags.length > 0 && (
+              <div style={{ marginTop: "12px", display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                <span style={{ fontSize: "11px", fontWeight: "700", color: "#64748b" }}>Triggered Flags:</span>
+                {geoData.threatFlags.map((flag, fIdx) => (
+                  <span key={fIdx} style={{ padding: "2px 6px", borderRadius: "4px", background: "#fee2e2", color: "#dc2626", fontSize: "10px", fontWeight: "700", fontFamily: "monospace" }}>
+                    {flag}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

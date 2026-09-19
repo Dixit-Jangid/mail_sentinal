@@ -22,6 +22,13 @@ import {
   Download,
   MapPin,
   Search,
+  Activity,
+  Cpu,
+  Layers,
+  CheckCircle2,
+  AlertCircle,
+  TrendingUp,
+  Fingerprint,
 } from "lucide-react";
 import { analyzeEmlFile } from "../services/emailAnalyzer";
 import { maskSensitiveText } from "../services/privacyService";
@@ -549,6 +556,9 @@ export default function AnalyzeEmail({
           >
             {[
               { id: "overview", label: "Executive Summary", icon: FileText },
+              { id: "ai_classifier", label: `AI/ML Model (${analysis.aiClassification?.primaryClass || "5-Class"})`, icon: Cpu },
+              { id: "fraud", label: `Fraud Patterns (${analysis.fraudAudit?.detectedCount || 0})`, icon: AlertTriangle },
+              { id: "domain_intel", label: "Domain & WHOIS", icon: Globe2 },
               { id: "formal_report", label: "Investigation Report", icon: FileText },
               { id: "nlp", label: `NLP & BEC Cues (${analysis.nlpAudit?.detectedTriggers?.length || 0})`, icon: Zap },
               { id: "auth", label: "Protocol & Alignment", icon: ShieldCheck },
@@ -714,7 +724,479 @@ export default function AnalyzeEmail({
                       </a>
                     )}
                   </div>
+
+                  <div style={{ background: "#fff", padding: "12px", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                    <span style={{ fontSize: "12px", color: "#64748b", fontWeight: "600" }}>AI/ML 5-Class Prediction:</span>
+                    <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#1e293b" }}>
+                      Verdict: <strong>{analysis.aiClassification?.primaryClass || analysis.primaryClassification || "Evaluated"}</strong> ({analysis.aiClassification?.confidence || 0}% confidence)
+                    </p>
+                    <div style={{ display: "flex", gap: "4px", marginTop: "6px", height: "6px", borderRadius: "3px", overflow: "hidden", background: "#f1f5f9" }}>
+                      <div title="Legitimate" style={{ width: `${analysis.aiClassification?.probabilities?.Legitimate || 0}%`, background: "#16a34a" }} />
+                      <div title="Suspicious" style={{ width: `${analysis.aiClassification?.probabilities?.Suspicious || 0}%`, background: "#d97706" }} />
+                      <div title="Impersonated" style={{ width: `${analysis.aiClassification?.probabilities?.Impersonated || 0}%`, background: "#ea580c" }} />
+                      <div title="Phishing" style={{ width: `${analysis.aiClassification?.probabilities?.Phishing || 0}%`, background: "#dc2626" }} />
+                      <div title="Fraud" style={{ width: `${analysis.aiClassification?.probabilities?.Fraud || 0}%`, background: "#7f1d1d" }} />
+                    </div>
+                  </div>
+
+                  <div style={{ background: analysis.fraudAudit?.detectedCount > 0 ? "#fef2f2" : "#fff", padding: "12px", borderRadius: "8px", border: analysis.fraudAudit?.detectedCount > 0 ? "1px solid #fca5a5" : "1px solid #e2e8f0" }}>
+                    <span style={{ fontSize: "12px", color: analysis.fraudAudit?.detectedCount > 0 ? "#dc2626" : "#64748b", fontWeight: "600" }}>Fraud Archetypes:</span>
+                    <p style={{ margin: "4px 0 0", fontSize: "13px", color: analysis.fraudAudit?.detectedCount > 0 ? "#991b1b" : "#16a34a" }}>
+                      {analysis.fraudAudit?.detectedCount > 0
+                        ? `${analysis.fraudAudit.detectedCount} fraud patterns detected (${analysis.fraudAudit.highestSeverity || "CRITICAL"})`
+                        : "No active fraud archetypes detected."}
+                    </p>
+                  </div>
+
+                  <div style={{ background: analysis.threeWayAudit?.correlationStatus === "FULL_ALIGNMENT" ? "#f0fdf4" : "#fff1f2", padding: "12px", borderRadius: "8px", border: analysis.threeWayAudit?.correlationStatus === "FULL_ALIGNMENT" ? "1px solid #bbf7d0" : "1px solid #fca5a5" }}>
+                    <span style={{ fontSize: "12px", color: analysis.threeWayAudit?.correlationStatus === "FULL_ALIGNMENT" ? "#166534" : "#991b1b", fontWeight: "600" }}>3-Way Header Alignment:</span>
+                    <p style={{ margin: "4px 0 0", fontSize: "13px", color: analysis.threeWayAudit?.correlationStatus === "FULL_ALIGNMENT" ? "#15803d" : "#dc2626" }}>
+                      {analysis.threeWayAudit?.correlationStatus === "FULL_ALIGNMENT"
+                        ? "ALIGNED: From, Reply-To & Return-Path match."
+                        : `MISMATCH: ${analysis.threeWayAudit?.correlationStatus || "Divergent headers detected"}.`}
+                    </p>
+                  </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: AI/ML 5-CLASS CLASSIFICATION */}
+          {activeTab === "ai_classifier" && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px", marginBottom: "20px" }}>
+                <div>
+                  <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: "8px", fontSize: "17px", color: "#0f172a" }}>
+                    <Cpu size={20} style={{ color: "#2563eb" }} /> Multi-Modal AI/ML Threat Classification
+                  </h3>
+                  <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#64748b" }}>
+                    Ensemble Neural Classifier evaluates lexical, cryptographic, routing, and fraud vectors to categorize threats into 5 distinct classes.
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <span style={{ padding: "4px 10px", borderRadius: "6px", background: "#f1f5f9", fontSize: "11px", fontWeight: "700", color: "#475569" }}>
+                    Engine: {analysis.aiClassification?.modelEngine || "AegisEnsemble-v4.2-Hybrid"}
+                  </span>
+                  <span style={{ padding: "4px 10px", borderRadius: "6px", background: "#eff6ff", fontSize: "11px", fontWeight: "700", color: "#2563eb", border: "1px solid #bfdbfe" }}>
+                    {analysis.aiClassification?.featuresAssessed || 24} Feature Vectors
+                  </span>
+                </div>
+              </div>
+
+              {/* PRIMARY CLASSIFICATION BANNER */}
+              <div
+                style={{
+                  background: "linear-gradient(135deg, #0d2741 0%, #1e3a8a 100%)",
+                  borderRadius: "12px",
+                  padding: "20px 24px",
+                  color: "#fff",
+                  marginBottom: "24px",
+                  boxShadow: "0 4px 16px rgba(13, 39, 65, 0.15)",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px" }}>
+                  <div>
+                    <span style={{ fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.08em", color: "#93c5fd", fontWeight: "700" }}>
+                      Primary AI Verdict
+                    </span>
+                    <h2 style={{ margin: "4px 0 6px", fontSize: "28px", fontWeight: "800", letterSpacing: "-0.02em" }}>
+                      {analysis.aiClassification?.primaryClass || analysis.primaryClassification || "Unknown"}
+                    </h2>
+                    <p style={{ margin: 0, fontSize: "13px", color: "#e0e7ff", maxWidth: "680px", lineHeight: "1.5" }}>
+                      {analysis.aiClassification?.classificationRationale || "Ensemble scoring model classified this transmission based on multi-vector forensic indicators."}
+                    </p>
+                  </div>
+                  <div style={{ textAlign: "right", minWidth: "140px" }}>
+                    <span style={{ fontSize: "11px", color: "#93c5fd", display: "block", textTransform: "uppercase" }}>Model Confidence</span>
+                    <span style={{ fontSize: "36px", fontWeight: "900", color: "#60a5fa" }}>
+                      {analysis.aiClassification?.confidence || 0}%
+                    </span>
+                    <span style={{ fontSize: "11px", color: "#bfdbfe", display: "block" }}>Confidence Score</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 5-CLASS PROBABILITY DISTRIBUTION METERS */}
+              <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "20px", marginBottom: "24px" }}>
+                <h4 style={{ margin: "0 0 16px", fontSize: "14px", fontWeight: "700", color: "#1e293b", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <Activity size={16} style={{ color: "#2563eb" }} /> Normalized 5-Class Probability Distribution (Softmax Ensemble)
+                </h4>
+                <div style={{ display: "grid", gap: "14px" }}>
+                  {[
+                    { key: "Legitimate", label: "Legitimate", color: "#16a34a", bg: "#dcfce7", desc: "Clean business or transactional correspondence passing all verifications" },
+                    { key: "Suspicious", label: "Suspicious", color: "#d97706", bg: "#fef3c7", desc: "Borderline indicators, unusual hop delays, or unverified sender domains" },
+                    { key: "Impersonated", label: "Impersonated", color: "#ea580c", bg: "#ffedd5", desc: "Display-name spoofing, lookalike domains, or Reply-To redirection traps" },
+                    { key: "Phishing", label: "Phishing", color: "#dc2626", bg: "#fee2e2", desc: "Credential-harvesting links, deceptive login portals, or fake notifications" },
+                    { key: "Fraud", label: "Fraud (BEC / Financial)", color: "#7f1d1d", bg: "#fecaca", desc: "Payment diversion, fake invoice penalties, wire fraud, or VIP extortion" },
+                  ].map((cls) => {
+                    const prob = analysis.aiClassification?.probabilities?.[cls.key] || 0;
+                    const isWinner = (analysis.aiClassification?.primaryClass || analysis.primaryClassification) === cls.key;
+                    return (
+                      <div key={cls.key} style={{ padding: "12px 14px", borderRadius: "8px", background: isWinner ? "#f8fafc" : "#fafafa", border: isWinner ? `2px solid ${cls.color}` : "1px solid #f1f5f9" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                            <span style={{ fontWeight: "700", fontSize: "14px", color: isWinner ? cls.color : "#334155" }}>
+                              {cls.label}
+                            </span>
+                            {isWinner && (
+                              <span style={{ padding: "2px 6px", borderRadius: "4px", background: cls.bg, color: cls.color, fontSize: "10px", fontWeight: "800" }}>
+                                SELECTED VERDICT
+                              </span>
+                            )}
+                          </div>
+                          <strong style={{ fontSize: "14px", fontFamily: "monospace", color: isWinner ? cls.color : "#475569" }}>
+                            {prob.toFixed(1)}%
+                          </strong>
+                        </div>
+                        <div style={{ width: "100%", height: "8px", borderRadius: "4px", background: "#e2e8f0", overflow: "hidden", marginBottom: "6px" }}>
+                          <div
+                            style={{
+                              width: `${Math.min(prob, 100)}%`,
+                              height: "100%",
+                              background: cls.color,
+                              borderRadius: "4px",
+                              transition: "width 0.4s ease",
+                            }}
+                          />
+                        </div>
+                        <p style={{ margin: 0, fontSize: "12px", color: "#64748b" }}>{cls.desc}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* FEATURE CONTRIBUTIONS TABLE */}
+              <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "20px" }}>
+                <h4 style={{ margin: "0 0 14px", fontSize: "14px", fontWeight: "700", color: "#1e293b", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <Layers size={16} style={{ color: "#2563eb" }} /> Top Feature Vector Contributions
+                </h4>
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                    <thead>
+                      <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", textAlign: "left", color: "#64748b" }}>
+                        <th style={{ padding: "10px 12px" }}>Feature Name</th>
+                        <th style={{ padding: "10px 12px" }}>Impact</th>
+                        <th style={{ padding: "10px 12px" }}>Weight</th>
+                        <th style={{ padding: "10px 12px" }}>Raw Score</th>
+                        <th style={{ padding: "10px 12px" }}>Forensic Rationale</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(analysis.aiClassification?.featureContributions || []).map((feat, idx) => (
+                        <tr key={idx} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                          <td style={{ padding: "10px 12px", fontWeight: "600", color: "#1e293b" }}>{feat.feature}</td>
+                          <td style={{ padding: "10px 12px" }}>
+                            <span
+                              style={{
+                                padding: "2px 6px",
+                                borderRadius: "4px",
+                                fontSize: "10px",
+                                fontWeight: "700",
+                                background: feat.impact === "HIGH" ? "#fee2e2" : feat.impact === "MEDIUM" ? "#fef3c7" : "#f1f5f9",
+                                color: feat.impact === "HIGH" ? "#dc2626" : feat.impact === "MEDIUM" ? "#d97706" : "#475569",
+                              }}
+                            >
+                              {feat.impact}
+                            </span>
+                          </td>
+                          <td style={{ padding: "10px 12px", fontFamily: "monospace", color: "#64748b" }}>{feat.weight}</td>
+                          <td style={{ padding: "10px 12px", fontFamily: "monospace", color: "#1e293b", fontWeight: "600" }}>{feat.score}</td>
+                          <td style={{ padding: "10px 12px", color: "#475569" }}>{feat.description}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: ADVANCED FRAUD PATTERNS */}
+          {activeTab === "fraud" && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px", marginBottom: "20px" }}>
+                <div>
+                  <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: "8px", fontSize: "17px", color: "#0f172a" }}>
+                    <AlertTriangle size={20} style={{ color: "#dc2626" }} /> Advanced Fraud-Pattern Detection & Archetype Analysis
+                  </h3>
+                  <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#64748b" }}>
+                    Deep inspection targeting 5 distinct cyber fraud archetypes: Payment diversion, Fake invoices, Credential harvesting, Executive impersonation, and BEC schemes.
+                  </p>
+                </div>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <span
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: "6px",
+                      fontSize: "11px",
+                      fontWeight: "800",
+                      background: analysis.fraudAudit?.detectedCount > 0 ? "#fee2e2" : "#dcfce7",
+                      color: analysis.fraudAudit?.detectedCount > 0 ? "#dc2626" : "#16a34a",
+                    }}
+                  >
+                    {analysis.fraudAudit?.detectedCount || 0} Patterns Confirmed
+                  </span>
+                  <span
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: "6px",
+                      fontSize: "11px",
+                      fontWeight: "800",
+                      background: analysis.fraudAudit?.highestSeverity === "CRITICAL" ? "#7f1d1d" : "#f1f5f9",
+                      color: analysis.fraudAudit?.highestSeverity === "CRITICAL" ? "#fff" : "#475569",
+                    }}
+                  >
+                    Severity: {analysis.fraudAudit?.highestSeverity || "None"}
+                  </span>
+                </div>
+              </div>
+
+              {/* 5 FRAUD ARCHETYPE CARDS */}
+              <div style={{ display: "grid", gap: "16px" }}>
+                {[
+                  {
+                    id: "payment_diversion",
+                    name: "Payment Diversion Fraud",
+                    pattern: analysis.fraudAudit?.patterns?.paymentDiversion,
+                    subtitle: "Wire instructions change, alternate banking coordinates, urgency around banking redirect",
+                    mitre: "T1565.002 (Transmitted Data Manipulation)",
+                    countermeasure: "Verify bank routing changes via out-of-band telephone call using pre-established numbers.",
+                  },
+                  {
+                    id: "fake_invoice",
+                    name: "Fake Invoice & Billing Discrepancy",
+                    pattern: analysis.fraudAudit?.patterns?.fakeInvoice,
+                    subtitle: "Urgent unpaid invoices, bogus penalty notices, fabricated remittance requests",
+                    mitre: "T1566.001 (Spearphishing Attachment)",
+                    countermeasure: "Cross-reference PO numbers in ERP accounting system before processing any payment.",
+                  },
+                  {
+                    id: "credential_harvesting",
+                    name: "Credential Harvesting & Account Takeover",
+                    pattern: analysis.fraudAudit?.patterns?.credentialHarvesting,
+                    subtitle: "Password expiry warnings, MFA resetting traps, simulated login landing pages, Quishing",
+                    mitre: "T1566.002 (Spearphishing Link) / T1598 (Phishing for Information)",
+                    countermeasure: "Enforce FIDO2 WebAuthn hardware security keys and block untrusted external auth redirects.",
+                  },
+                  {
+                    id: "executive_impersonation",
+                    name: "Executive & VIP Impersonation",
+                    pattern: analysis.fraudAudit?.patterns?.executiveImpersonation,
+                    subtitle: "CEO/CFO masquerading, confidential emergency tasks, gift card purchasing requests",
+                    mitre: "T1656 (Impersonation) / T1589 (Gather Victim Identity Information)",
+                    countermeasure: "Enforce dual-authorization protocols on any wire transfer or corporate card action.",
+                  },
+                  {
+                    id: "bec_patterns",
+                    name: "Business Email Compromise (BEC)",
+                    pattern: analysis.fraudAudit?.patterns?.becPatterns,
+                    subtitle: "Supplier compromise, payroll diversion, confidential merger/acquisition requests",
+                    mitre: "T1586.002 (Compromised Email Account)",
+                    countermeasure: "Inspect header Return-Path vs From for relay divergence and flag internal sender lookalikes.",
+                  },
+                ].map((arch) => {
+                  const detected = arch.pattern?.detected || false;
+                  return (
+                    <div
+                      key={arch.id}
+                      style={{
+                        background: detected ? "#fff" : "#fafafa",
+                        borderRadius: "10px",
+                        border: detected ? "2px solid #ef4444" : "1px solid #e2e8f0",
+                        padding: "18px 20px",
+                        boxShadow: detected ? "0 4px 12px rgba(239, 68, 68, 0.08)" : "none",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px", marginBottom: "10px" }}>
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                            <h4 style={{ margin: 0, fontSize: "16px", color: detected ? "#991b1b" : "#1e293b", fontWeight: "700" }}>
+                              {arch.name}
+                            </h4>
+                            <span
+                              style={{
+                                padding: "2px 8px",
+                                borderRadius: "4px",
+                                fontSize: "11px",
+                                fontWeight: "800",
+                                background: detected ? "#fee2e2" : "#dcfce7",
+                                color: detected ? "#dc2626" : "#16a34a",
+                              }}
+                            >
+                              {detected ? "DETECTED / ACTIVE" : "CLEARED"}
+                            </span>
+                            {detected && arch.pattern?.confidence && (
+                              <span style={{ fontSize: "11px", color: "#64748b", fontWeight: "600" }}>
+                                {arch.pattern.confidence}% Confidence
+                              </span>
+                            )}
+                          </div>
+                          <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#64748b" }}>{arch.subtitle}</p>
+                        </div>
+                        <span style={{ padding: "3px 8px", borderRadius: "4px", background: "#f1f5f9", color: "#475569", fontSize: "11px", fontWeight: "600" }}>
+                          MITRE: {arch.mitre}
+                        </span>
+                      </div>
+
+                      {detected && (
+                        <div style={{ marginTop: "12px", background: "#fef2f2", padding: "14px", borderRadius: "8px", border: "1px solid #fca5a5" }}>
+                          <span style={{ fontSize: "11px", fontWeight: "800", textTransform: "uppercase", color: "#991b1b", display: "block", marginBottom: "6px" }}>
+                            Extracted Forensic Evidence Snippets:
+                          </span>
+                          <div style={{ display: "grid", gap: "6px" }}>
+                            {(arch.pattern?.snippets || []).map((snip, sIdx) => (
+                              <div
+                                key={sIdx}
+                                style={{
+                                  background: "#fff",
+                                  padding: "8px 12px",
+                                  borderRadius: "6px",
+                                  border: "1px solid #fecaca",
+                                  fontFamily: "monospace",
+                                  fontSize: "12px",
+                                  color: "#7f1d1d",
+                                }}
+                              >
+                                &ldquo;{snip}&rdquo;
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{ marginTop: "10px", fontSize: "12px", color: "#991b1b" }}>
+                            <strong>Tactical Countermeasure:</strong> {arch.countermeasure}
+                          </div>
+                        </div>
+                      )}
+
+                      {!detected && (
+                        <div style={{ fontSize: "12px", color: "#94a3b8", fontStyle: "italic", marginTop: "6px" }}>
+                          No matching lexical, header, or behavioral patterns found for this archetype.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* TAB: DOMAIN INTELLIGENCE & RDAP/WHOIS */}
+          {activeTab === "domain_intel" && (
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px", marginBottom: "20px" }}>
+                <div>
+                  <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: "8px", fontSize: "17px", color: "#0f172a" }}>
+                    <Globe2 size={20} style={{ color: "#0284c7" }} /> Sender Domain & WHOIS/RDAP Intelligence
+                  </h3>
+                  <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#64748b" }}>
+                    Deep domain analysis: Registrar forensics, newly registered domain (NRD) age tracking, MX mail routing fingerprinting, and brand typosquatting radar.
+                  </p>
+                </div>
+                <span
+                  style={{
+                    padding: "4px 10px",
+                    borderRadius: "6px",
+                    background: analysis.domainIntel?.typosquattingDetected ? "#fee2e2" : "#eff6ff",
+                    color: analysis.domainIntel?.typosquattingDetected ? "#dc2626" : "#0369a1",
+                    fontSize: "11px",
+                    fontWeight: "700",
+                    border: "1px solid #bae6fd",
+                  }}
+                >
+                  Domain: {analysis.domainIntel?.domain || analysis.senderDomain || "N/A"}
+                </span>
+              </div>
+
+              {/* NEWLY REGISTERED DOMAIN (NRD) ALERT BANNER */}
+              {analysis.domainIntel?.domainAge?.isNewlyRegistered && (
+                <div style={{ background: "#fef2f2", border: "2px solid #ef4444", borderRadius: "10px", padding: "16px 20px", marginBottom: "20px", display: "flex", alignItems: "center", gap: "14px" }}>
+                  <AlertCircle size={28} style={{ color: "#dc2626", flexShrink: 0 }} />
+                  <div>
+                    <strong style={{ fontSize: "15px", color: "#991b1b", display: "block" }}>
+                      CRITICAL: Newly Registered Domain Detected ({analysis.domainIntel.domainAge.ageDays} days old)
+                    </strong>
+                    <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#7f1d1d" }}>
+                      This domain was registered less than 30 days ago. Over 80% of newly registered domains in unsolicited correspondence are disposable phishing or C2 infrastructure.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* TYPOSQUATTING ALERT BANNER */}
+              {analysis.domainIntel?.typosquattingDetected && (
+                <div style={{ background: "#fff7ed", border: "2px solid #f97316", borderRadius: "10px", padding: "16px 20px", marginBottom: "20px", display: "flex", alignItems: "center", gap: "14px" }}>
+                  <AlertTriangle size={28} style={{ color: "#ea580c", flexShrink: 0 }} />
+                  <div>
+                    <strong style={{ fontSize: "15px", color: "#9a3412", display: "block" }}>
+                      LOOKALIKE / TYPOSQUATTING ALERT: Impersonating '{analysis.domainIntel.typosquattingTarget}'
+                    </strong>
+                    <p style={{ margin: "4px 0 0", fontSize: "13px", color: "#7c2d12" }}>
+                      The domain '{analysis.domainIntel.domain}' exhibits deceptive similarity (Levenshtein distance: {analysis.domainIntel.levenshteinDistance || 1}) to legitimate brand '{analysis.domainIntel.typosquattingTarget}'.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* DOMAIN FORENSICS DOSSIER */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "16px", marginBottom: "24px" }}>
+                <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "16px" }}>
+                  <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", fontWeight: "700" }}>Registrar Name</span>
+                  <strong style={{ display: "block", fontSize: "15px", color: "#1e293b", marginTop: "4px" }}>
+                    {analysis.domainIntel?.registrar || analysis.domainIntel?.rdapData?.registrar || "Standard Domain Registrar"}
+                  </strong>
+                  <span style={{ fontSize: "12px", color: "#94a3b8" }}>Authoritative registrar of record</span>
+                </div>
+
+                <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "16px" }}>
+                  <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", fontWeight: "700" }}>Domain Age</span>
+                  <strong style={{ display: "block", fontSize: "15px", color: analysis.domainIntel?.domainAge?.isNewlyRegistered ? "#dc2626" : "#16a34a", marginTop: "4px" }}>
+                    {analysis.domainIntel?.domainAge?.ageFormatted || analysis.domainIntel?.domainAgeFormatted || "Active Domain"}
+                  </strong>
+                  <span style={{ fontSize: "12px", color: "#94a3b8" }}>
+                    {analysis.domainIntel?.domainAge?.ageDays ? `${analysis.domainIntel.domainAge.ageDays} days since creation` : "Verified established"}
+                  </span>
+                </div>
+
+                <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "16px" }}>
+                  <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", fontWeight: "700" }}>Mail Provider (MX)</span>
+                  <strong style={{ display: "block", fontSize: "15px", color: "#1e293b", marginTop: "4px" }}>
+                    {analysis.domainIntel?.mxProvider || "Custom MTA / Self-Hosted"}
+                  </strong>
+                  <span style={{ fontSize: "12px", color: "#94a3b8" }}>
+                    Category: {analysis.domainIntel?.mxProviderCategory || "Corporate Email"}
+                  </span>
+                </div>
+
+                <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "16px" }}>
+                  <span style={{ fontSize: "11px", color: "#64748b", textTransform: "uppercase", fontWeight: "700" }}>Creation Date</span>
+                  <strong style={{ display: "block", fontSize: "15px", color: "#1e293b", marginTop: "4px" }}>
+                    {analysis.domainIntel?.creationDate || "N/A"}
+                  </strong>
+                  <span style={{ fontSize: "12px", color: "#94a3b8" }}>
+                    Expires: {analysis.domainIntel?.expirationDate || "Active"}
+                  </span>
+                </div>
+              </div>
+
+              {/* MX HOST RECORDS TABLE */}
+              <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "20px" }}>
+                <h4 style={{ margin: "0 0 12px", fontSize: "14px", fontWeight: "700", color: "#1e293b", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <Server size={16} style={{ color: "#2563eb" }} /> Authoritative MX Mail Exchanger Records
+                </h4>
+                {Array.isArray(analysis.domainIntel?.mxRecords) && analysis.domainIntel.mxRecords.length > 0 ? (
+                  <div style={{ display: "grid", gap: "8px" }}>
+                    {analysis.domainIntel.mxRecords.map((mx, mIdx) => (
+                      <div key={mIdx} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: "#f8fafc", borderRadius: "6px", border: "1px solid #f1f5f9", fontSize: "13px" }}>
+                        <span style={{ fontFamily: "monospace", color: "#1e293b" }}>{mx.exchange || mx.host || mx}</span>
+                        <span style={{ fontSize: "11px", color: "#64748b", fontWeight: "600" }}>Priority: {mx.priority || 10}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ margin: 0, fontSize: "13px", color: "#64748b" }}>
+                    MX records mapped to primary sender domain: {analysis.domainIntel?.domain || analysis.senderDomain}
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -1374,6 +1856,98 @@ export default function AnalyzeEmail({
                 </p>
               </div>
 
+              {/* 3-WAY HEADER CORRELATION MATRIX (From vs Reply-To vs Return-Path) */}
+              <div
+                style={{
+                  background: "#fff",
+                  border: analysis.threeWayAudit?.correlationStatus === "FULL_ALIGNMENT" ? "1px solid #bbf7d0" : "2px solid #ef4444",
+                  borderRadius: "10px",
+                  padding: "18px 20px",
+                  marginBottom: "20px",
+                  boxShadow: analysis.threeWayAudit?.correlationStatus === "FULL_ALIGNMENT" ? "none" : "0 4px 14px rgba(239, 68, 68, 0.08)",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", marginBottom: "14px" }}>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: "15px", fontWeight: "700", color: "#1e293b", display: "flex", alignItems: "center", gap: "8px" }}>
+                      <Fingerprint size={18} style={{ color: analysis.threeWayAudit?.correlationStatus === "FULL_ALIGNMENT" ? "#16a34a" : "#dc2626" }} />
+                      Three-Way Header Correlation Matrix (RFC 5322 / RFC 5321)
+                    </h4>
+                    <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#64748b" }}>
+                      Cross-correlates author 'From', routing 'Reply-To', and bounce 'Return-Path' to identify wire-fraud diversions and free-webmail traps.
+                    </p>
+                  </div>
+                  <span
+                    style={{
+                      padding: "4px 10px",
+                      borderRadius: "6px",
+                      fontSize: "11px",
+                      fontWeight: "800",
+                      background: analysis.threeWayAudit?.correlationStatus === "FULL_ALIGNMENT" ? "#dcfce7" : "#fee2e2",
+                      color: analysis.threeWayAudit?.correlationStatus === "FULL_ALIGNMENT" ? "#15803d" : "#dc2626",
+                    }}
+                  >
+                    STATUS: {analysis.threeWayAudit?.correlationStatus || "ALIGNED"}
+                  </span>
+                </div>
+
+                {/* FREE WEBMAIL DIVERSION TRAP ALERT */}
+                {analysis.threeWayAudit?.freeWebmailRedirectTrap && (
+                  <div style={{ background: "#fef2f2", border: "1px solid #f87171", borderRadius: "8px", padding: "12px 14px", marginBottom: "14px", display: "flex", alignItems: "center", gap: "10px" }}>
+                    <AlertCircle size={20} style={{ color: "#dc2626", flexShrink: 0 }} />
+                    <div style={{ fontSize: "12px", color: "#991b1b" }}>
+                      <strong>CRITICAL WIRE-FRAUD TRAP:</strong> Header 'From' displays corporate domain ({analysis.threeWayAudit?.matrix?.from?.domain}), but replies are silently diverted to personal webmail ({analysis.threeWayAudit?.matrix?.replyTo?.address}).
+                    </div>
+                  </div>
+                )}
+
+                {/* CORRELATION MATRIX COMPARISON TABLE */}
+                <div style={{ overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
+                    <thead>
+                      <tr style={{ background: "#f8fafc", borderBottom: "1px solid #e2e8f0", textAlign: "left", color: "#64748b" }}>
+                        <th style={{ padding: "8px 10px" }}>RFC Header Role</th>
+                        <th style={{ padding: "8px 10px" }}>Specified Address</th>
+                        <th style={{ padding: "8px 10px" }}>Domain</th>
+                        <th style={{ padding: "8px 10px" }}>Provider Type</th>
+                        <th style={{ padding: "8px 10px" }}>Alignment</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr style={{ borderBottom: "1px solid #f1f5f9" }}>
+                        <td style={{ padding: "8px 10px", fontWeight: "600", color: "#1e293b" }}>From (RFC 5322 Author)</td>
+                        <td style={{ padding: "8px 10px", fontFamily: "monospace" }}>{analysis.threeWayAudit?.matrix?.from?.address || analysis.from}</td>
+                        <td style={{ padding: "8px 10px" }}>{analysis.threeWayAudit?.matrix?.from?.domain || analysis.senderDomain}</td>
+                        <td style={{ padding: "8px 10px", color: "#64748b" }}>{analysis.threeWayAudit?.matrix?.from?.isFreeWebmail ? "Free Webmail" : "Corporate / Custom"}</td>
+                        <td style={{ padding: "8px 10px" }}><span style={{ color: "#16a34a", fontWeight: "700" }}>REFERENCE</span></td>
+                      </tr>
+                      <tr style={{ borderBottom: "1px solid #f1f5f9" }}>
+                        <td style={{ padding: "8px 10px", fontWeight: "600", color: "#1e293b" }}>Reply-To (RFC 5322 Target)</td>
+                        <td style={{ padding: "8px 10px", fontFamily: "monospace" }}>{analysis.threeWayAudit?.matrix?.replyTo?.address || analysis.from}</td>
+                        <td style={{ padding: "8px 10px" }}>{analysis.threeWayAudit?.matrix?.replyTo?.domain || analysis.senderDomain}</td>
+                        <td style={{ padding: "8px 10px", color: "#64748b" }}>{analysis.threeWayAudit?.matrix?.replyTo?.isFreeWebmail ? "Free Webmail" : "Corporate / Custom"}</td>
+                        <td style={{ padding: "8px 10px" }}>
+                          <span style={{ color: analysis.threeWayAudit?.replyToMismatch ? "#dc2626" : "#16a34a", fontWeight: "700" }}>
+                            {analysis.threeWayAudit?.replyToMismatch ? "DIVERTED" : "ALIGNED"}
+                          </span>
+                        </td>
+                      </tr>
+                      <tr style={{ borderBottom: "1px solid #f1f5f9" }}>
+                        <td style={{ padding: "8px 10px", fontWeight: "600", color: "#1e293b" }}>Return-Path (RFC 5321 Envelope)</td>
+                        <td style={{ padding: "8px 10px", fontFamily: "monospace" }}>{analysis.threeWayAudit?.matrix?.returnPath?.address || "Unspecified"}</td>
+                        <td style={{ padding: "8px 10px" }}>{analysis.threeWayAudit?.matrix?.returnPath?.domain || "N/A"}</td>
+                        <td style={{ padding: "8px 10px", color: "#64748b" }}>{analysis.threeWayAudit?.matrix?.returnPath?.isFreeWebmail ? "Free Webmail" : "MTA Transport"}</td>
+                        <td style={{ padding: "8px 10px" }}>
+                          <span style={{ color: analysis.threeWayAudit?.returnPathMismatch ? "#d97706" : "#16a34a", fontWeight: "700" }}>
+                            {analysis.threeWayAudit?.returnPathMismatch ? "DISCONNECT" : "ALIGNED"}
+                          </span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
               {/* PROTOCOL ANOMALIES TABLE */}
               <div style={{ display: "grid", gap: "12px", marginBottom: "20px" }}>
                 <div
@@ -1497,6 +2071,115 @@ export default function AnalyzeEmail({
                 <p style={{ fontSize: "13px", color: "#64748b" }}>
                   Chronological trace of intermediate Mail Transfer Agents (MTAs) from earliest origin node to destination gateway.
                 </p>
+              </div>
+
+              {/* MAIL-HOP ANOMALY RADAR & RELAY MANIPULATION AUDIT */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "16px", marginBottom: "20px" }}>
+                {/* ANOMALY RADAR CARD */}
+                <div
+                  style={{
+                    background: analysis.hopTrace?.hopAnomaliesAudit?.hasClockRetrograde ? "#fef2f2" : "#fff",
+                    border: analysis.hopTrace?.hopAnomaliesAudit?.hasClockRetrograde ? "2px solid #ef4444" : "1px solid #e2e8f0",
+                    borderRadius: "10px",
+                    padding: "16px 18px",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                    <h4 style={{ margin: 0, fontSize: "14px", fontWeight: "700", color: "#1e293b", display: "flex", alignItems: "center", gap: "8px" }}>
+                      <Clock size={16} style={{ color: analysis.hopTrace?.hopAnomaliesAudit?.hasClockRetrograde ? "#dc2626" : "#2563eb" }} />
+                      Mail-Hop Anomaly Radar
+                    </h4>
+                    <span
+                      style={{
+                        padding: "2px 8px",
+                        borderRadius: "4px",
+                        fontSize: "11px",
+                        fontWeight: "800",
+                        background: (analysis.hopTrace?.hopAnomaliesAudit?.anomalies?.length || 0) > 0 ? "#fee2e2" : "#dcfce7",
+                        color: (analysis.hopTrace?.hopAnomaliesAudit?.anomalies?.length || 0) > 0 ? "#dc2626" : "#16a34a",
+                      }}
+                    >
+                      {analysis.hopTrace?.hopAnomaliesAudit?.anomalies?.length || 0} Anomalies
+                    </span>
+                  </div>
+
+                  {analysis.hopTrace?.hopAnomaliesAudit?.hasClockRetrograde && (
+                    <div style={{ background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: "6px", padding: "8px 12px", marginBottom: "10px", fontSize: "12px", color: "#991b1b" }}>
+                      <strong>CLOCK RETROGRADE DETECTED:</strong> Email hop timestamps move backwards in time. Strong indicator of forged intermediate Received headers or rogue relay desynchronization.
+                    </div>
+                  )}
+
+                  <div style={{ fontSize: "12px", color: "#475569", display: "grid", gap: "6px" }}>
+                    <div>
+                      <strong>Max Hop Delay:</strong> {analysis.hopTrace?.hopAnomaliesAudit?.maxHopDelay ? `${analysis.hopTrace.hopAnomaliesAudit.maxHopDelay}s` : "Normal transit"}
+                    </div>
+                    <div>
+                      <strong>Unencrypted Hops:</strong> {analysis.hopTrace?.hopAnomaliesAudit?.unencryptedHopsCount || 0} hops sent over plaintext SMTP
+                    </div>
+                    {Array.isArray(analysis.hopTrace?.hopAnomaliesAudit?.anomalies) && analysis.hopTrace.hopAnomaliesAudit.anomalies.length > 0 && (
+                      <div style={{ marginTop: "4px" }}>
+                        <strong>Detected Discrepancies:</strong>
+                        <ul style={{ margin: "4px 0 0", paddingLeft: "18px", color: "#dc2626" }}>
+                          {analysis.hopTrace.hopAnomaliesAudit.anomalies.map((a, aIdx) => (
+                            <li key={aIdx}>{a.description || a.type || "Routing anomaly"}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* RELAY MANIPULATION CARD */}
+                <div
+                  style={{
+                    background: analysis.hopTrace?.isRelayManipulated ? "#fff7ed" : "#fff",
+                    border: analysis.hopTrace?.isRelayManipulated ? "2px solid #f97316" : "1px solid #e2e8f0",
+                    borderRadius: "10px",
+                    padding: "16px 18px",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                    <h4 style={{ margin: 0, fontSize: "14px", fontWeight: "700", color: "#1e293b", display: "flex", alignItems: "center", gap: "8px" }}>
+                      <Network size={16} style={{ color: analysis.hopTrace?.isRelayManipulated ? "#ea580c" : "#16a34a" }} />
+                      Relay Manipulation & Continuity Audit
+                    </h4>
+                    <span
+                      style={{
+                        padding: "2px 8px",
+                        borderRadius: "4px",
+                        fontSize: "11px",
+                        fontWeight: "800",
+                        background: analysis.hopTrace?.isRelayManipulated ? "#ffedd5" : "#dcfce7",
+                        color: analysis.hopTrace?.isRelayManipulated ? "#c2410c" : "#16a34a",
+                      }}
+                    >
+                      {analysis.hopTrace?.isRelayManipulated ? "MANIPULATION ALERT" : "CONTINUOUS CHAIN"}
+                    </span>
+                  </div>
+
+                  <p style={{ margin: "0 0 8px", fontSize: "12px", color: "#64748b" }}>
+                    Inspects intermediate Received header syntax, MTA handshakes, and RFC 1918 private IP insertion in public transit.
+                  </p>
+
+                  <div style={{ fontSize: "12px", color: "#475569", display: "grid", gap: "6px" }}>
+                    <div>
+                      <strong>Chain Discontinuities:</strong> {analysis.hopTrace?.relayManipulationAudit?.discontinuousRelays?.length || 0} gaps detected
+                    </div>
+                    <div>
+                      <strong>Injected Private IPs:</strong> {analysis.hopTrace?.relayManipulationAudit?.injectedPrivateHops?.length > 0 ? "YES (RFC 1918 inserted mid-transit)" : "None (Clean Public MTAs)"}
+                    </div>
+                    {analysis.hopTrace?.relayManipulationAudit?.indicators?.length > 0 && (
+                      <div style={{ marginTop: "4px" }}>
+                        <strong>Forensic Manipulation Flags:</strong>
+                        <ul style={{ margin: "4px 0 0", paddingLeft: "18px", color: "#ea580c" }}>
+                          {analysis.hopTrace.relayManipulationAudit.indicators.map((ind, iIdx) => (
+                            <li key={iIdx}>{ind}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {analysis.hopTrace?.hops?.length === 0 ? (
