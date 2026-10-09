@@ -215,6 +215,7 @@ function App() {
           {activePage === "blockchain" && (
             <ForensicLedger
               analysis={analysis}
+              file={file}
               setActivePage={setActivePage}
             />
           )}

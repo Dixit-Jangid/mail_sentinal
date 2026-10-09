@@ -125,8 +125,13 @@ export function classifyEmailThreat({
     logits.Legitimate = 0;
   }
 
-  if (domainIntel?.isNewlyRegistered) {
-    addScore("Suspicious", 25, `Newly registered domain (<${domainIntel.ageInDays || 30} days old)`, "Domain Intel");
+  const isNewlyRegisteredDomain = Boolean(
+    domainIntel?.domainAge?.isNewlyRegistered ?? domainIntel?.isNewlyRegistered
+  );
+  const newlyRegisteredAgeDays = domainIntel?.domainAge?.ageInDays ?? domainIntel?.ageInDays ?? 30;
+
+  if (isNewlyRegisteredDomain) {
+    addScore("Suspicious", 25, `Newly registered domain (<${newlyRegisteredAgeDays} days old)`, "Domain Intel");
     addScore("Phishing", 20, "Fresh domain infrastructure typical of disposable phishing kits", "Domain Intel");
   }
 

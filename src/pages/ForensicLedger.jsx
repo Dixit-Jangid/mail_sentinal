@@ -12,9 +12,14 @@ import {
   History,
 } from "lucide-react";
 import ModulePage from "../components/ModulePage";
-import { getCustodyLog, recordCustodyEvent, DEFAULT_INVESTIGATOR } from "../services/chainOfCustodyService";
+import {
+  getCustodyLog,
+  recordCustodyEvent,
+  DEFAULT_INVESTIGATOR,
+  verifyEvidenceIntegrity,
+} from "../services/chainOfCustodyService";
 
-export default function ForensicLedger({ analysis, setActivePage }) {
+export default function ForensicLedger({ analysis, file, setActivePage }) {
   const [copied, setCopied] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [verificationResult, setVerificationResult] = useState(null);
@@ -37,7 +42,7 @@ export default function ForensicLedger({ analysis, setActivePage }) {
         organization: DEFAULT_INVESTIGATOR.organization,
         details: `Source EML '${analysis.fileName}' ingested. Bit-for-bit SHA-256 computed.`,
         sha256Digest: analysis.sha256,
-        integrityStatus: "SECURE",
+        integrityStatus: "AUDIT_LOGGED",
       },
     ];
   }, [analysis]);
@@ -56,29 +61,37 @@ export default function ForensicLedger({ analysis, setActivePage }) {
     setVerifying(true);
     setVerificationResult(null);
 
-    // Simulate real-time re-hashing calculation
-    setTimeout(() => {
-      const isMatch = true; // matches current evidence SHA-256
-      const result = {
-        verified: isMatch,
+    try {
+      const result = await verifyEvidenceIntegrity(file || analysis?.file || null, analysis?.sha256);
+      setVerificationResult({
+        verified: result.verified,
         verifiedAt: new Date().toLocaleTimeString(),
-        recordedHash: analysis.sha256,
-        computedHash: analysis.sha256,
-        message: "Bit-for-bit SHA-256 integrity match. Evidence is pristine and uncorrupted.",
-      };
-      setVerificationResult(result);
-      setVerifying(false);
+        recordedHash: result.recordedHash,
+        computedHash: result.computedHash,
+        message: result.message,
+      });
 
-      // Record custody audit event
       const event = recordCustodyEvent(analysis.id, {
         action: "LIVE_INTEGRITY_REVERIFICATION",
-        details: "Examiner triggered real-time cryptographic integrity re-check. Verification passed.",
-        sha256: analysis.sha256,
+        details: result.verified
+          ? "Examiner triggered real-time cryptographic integrity re-check. Verification passed."
+          : "Examiner triggered real-time cryptographic integrity re-check. Hash mismatch detected.",
+        sha256: result.recordedHash,
       });
       if (event) {
         setVerificationLogs((prev) => [...prev, event]);
       }
-    }, 800);
+    } catch (error) {
+      setVerificationResult({
+        verified: false,
+        verifiedAt: new Date().toLocaleTimeString(),
+        recordedHash: analysis?.sha256 || null,
+        computedHash: null,
+        message: `Integrity verification failed: ${error.message || "Unknown error"}`,
+      });
+    } finally {
+      setVerifying(false);
+    }
   };
 
   return (
@@ -163,15 +176,15 @@ export default function ForensicLedger({ analysis, setActivePage }) {
               <div
                 style={{
                   marginTop: "16px",
-                  background: "rgba(34, 197, 94, 0.15)",
-                  border: "1px solid rgba(34, 197, 94, 0.35)",
+                  background: verificationResult.verified ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.12)",
+                  border: verificationResult.verified ? "1px solid rgba(34, 197, 94, 0.35)" : "1px solid rgba(239, 68, 68, 0.35)",
                   borderRadius: "6px",
                   padding: "10px 14px",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
                   fontSize: "12px",
-                  color: "#4ade80",
+                  color: verificationResult.verified ? "#4ade80" : "#fca5a5",
                 }}
               >
                 <span style={{ display: "flex", alignItems: "center", gap: "6px" }}>

@@ -53,7 +53,7 @@ export function recordCustodyEvent(evidenceId, {
     investigatorRole: investigator.role || DEFAULT_INVESTIGATOR.role,
     organization: investigator.organization || DEFAULT_INVESTIGATOR.organization,
     sha256Digest: sha256 || "Unspecified",
-    integrityStatus: "SECURE",
+    integrityStatus: sha256 ? "AUDIT_LOGGED" : "UNVERIFIED",
   };
 
   try {

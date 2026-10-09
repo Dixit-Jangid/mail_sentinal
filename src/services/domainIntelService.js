@@ -336,10 +336,13 @@ export async function resolveDomainIntelligence(domain) {
   const mxRecords = serverData?.mxRecords || [];
   const mailProvider = classifyMailProvider(mxRecords);
   const domainAge = calculateDomainAge(serverData?.creationDate || serverData?.registeredDate);
+  const isNewlyRegistered = Boolean(domainAge?.isNewlyRegistered);
 
   return {
     domain,
     isRegistered: serverData?.isRegistered ?? true,
+    isNewlyRegistered,
+    ageInDays: domainAge?.ageInDays ?? null,
     aRecords: serverData?.aRecords || [],
     nsRecords: serverData?.nsRecords || [],
     mxRecords,
@@ -357,7 +360,7 @@ export async function resolveDomainIntelligence(domain) {
     typosquattingTarget: lookalike.targetBrand,
     reputationScore: lookalike.isLookalike
       ? 15
-      : domainAge.isNewlyRegistered
+      : isNewlyRegistered
       ? 40
       : mxRecords.length > 0
       ? 95

@@ -65,10 +65,14 @@ export function calculateAttributionConfidence({
   // Vector 4: Domain Pedigree & Lookalike Analysis (Weight: 20%)
   let v4Score = 12;
   let v4Detail = "Domain exhibits typical age and MX configuration.";
+  const isNewlyRegisteredDomain = Boolean(
+    domainIntel?.domainAge?.isNewlyRegistered ?? domainIntel?.isNewlyRegistered
+  );
+
   if (domainIntel?.typosquattingDetected) {
     v4Score = 20;
     v4Detail = `Confirmed typosquatting attack mimicking ${domainIntel.typosquattingTarget}.`;
-  } else if (domainIntel?.isNewlyRegistered) {
+  } else if (isNewlyRegisteredDomain) {
     v4Score = 17;
     v4Detail = "Newly registered domain confirms recently provisioned adversary infrastructure.";
   }
