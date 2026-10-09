@@ -15,7 +15,6 @@ export function calculateAttributionConfidence({
   dkim = "Unknown",
   dmarc = "Unknown",
   protocolAudit = {},
-  nlpAudit = {},
   fraudPatterns = [],
   originGeo = {},
   domainIntel = {},
@@ -106,12 +105,10 @@ export function determineAttribution({
   dkim = "Unknown",
   dmarc = "Unknown",
   protocolAudit = {},
-  nlpAudit = {},
   fraudPatterns = [],
   originGeo = {},
   domainIntel = {},
   isTorExitNode = false,
-  detectedKeywords = [],
   suspiciousLinks = 0,
 }) {
   const { replyToMismatch, displayNameSpoofing } = protocolAudit;
@@ -178,7 +175,6 @@ export function determineAttribution({
     dkim,
     dmarc,
     protocolAudit,
-    nlpAudit,
     fraudPatterns,
     originGeo,
     domainIntel,

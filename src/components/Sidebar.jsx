@@ -1,8 +1,4 @@
-import {
-  Activity,
-  Settings,
-  ShieldCheck,
-} from "lucide-react";
+import { Settings } from "lucide-react";
 import { navItems } from "../constants/navigation";
 
 export default function Sidebar({
@@ -13,12 +9,14 @@ export default function Sidebar({
   return (
     <aside className={`sidebar ${sidebarOpen ? "open" : "collapsed"}`}>
       <div className="brand" onClick={() => setActivePage("dashboard")} style={{ cursor: "pointer" }}>
-        <div className="brand-mark">
-          <ShieldCheck size={23} />
-        </div>
+        <img
+          className="brand-mark"
+          src="/mail-sentinel-logo.png"
+          alt="MAIL SENTINEL logo"
+        />
         {sidebarOpen && (
           <div className="brand-copy">
-            <strong>AI Email Forensics</strong>
+            <strong>MAIL SENTINEL</strong>
             <span>Detect. Analyze. Protect.</span>
           </div>
         )}
@@ -53,31 +51,6 @@ export default function Sidebar({
         {sidebarOpen && <span>Settings</span>}
       </button>
 
-      {sidebarOpen && (
-        <div className="system-card">
-          <div className="system-card-top">
-            <div className="status-dot">
-              <Activity size={15} />
-            </div>
-            <span>System status</span>
-          </div>
-          <strong>All systems operational</strong>
-          <div className="system-progress">
-            <span />
-          </div>
-          <small>Analysis engine · Online</small>
-        </div>
-      )}
-
-      <div className="sidebar-user">
-        <div className="avatar">A</div>
-        {sidebarOpen && (
-          <div>
-            <strong>Security Analyst</strong>
-            <span>Analyst workspace</span>
-          </div>
-        )}
-      </div>
     </aside>
   );
 }

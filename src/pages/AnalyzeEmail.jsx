@@ -4,17 +4,12 @@ import {
   FileText,
   ShieldCheck,
   AlertTriangle,
-  Link2,
-  Code,
   ShieldAlert,
   Globe2,
   Network,
   Share2,
-  Eye,
-  EyeOff,
   Clock,
   Server,
-  Zap,
   Tag,
   ExternalLink,
   Copy,
@@ -25,13 +20,10 @@ import {
   Activity,
   Cpu,
   Layers,
-  CheckCircle2,
   AlertCircle,
-  TrendingUp,
   Fingerprint,
 } from "lucide-react";
 import { analyzeEmlFile } from "../services/emailAnalyzer";
-import { maskSensitiveText } from "../services/privacyService";
 import { generateInvestigativePdf } from "../services/pdfReportGenerator";
 import { generateSection65BCertificatePdf } from "../services/legalCertificateGenerator";
 import { lookupGeoIP, buildMapLinks } from "../services/geoIpService";
@@ -47,7 +39,6 @@ export default function AnalyzeEmail({
 }) {
   const [analyzing, setAnalyzing] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
-  const [piiRedacted, setPiiRedacted] = useState(false);
   const [headerSearch, setHeaderSearch] = useState("");
   const [copiedHash, setCopiedHash] = useState(false);
   const [activeGeoData, setActiveGeoData] = useState(null);
@@ -150,7 +141,7 @@ export default function AnalyzeEmail({
 
   return (
     <div className="analyze-page" style={{ maxWidth: "1400px", margin: "0 auto" }}>
-      {/* TOPBAR NAVIGATION & PII TOGGLE */}
+      {/* TOPBAR NAVIGATION */}
       <div
         className="analyze-header"
         style={{
@@ -181,16 +172,16 @@ export default function AnalyzeEmail({
               SOC Digital Forensics Lab
             </span>
             <h1 style={{ fontSize: "22px", margin: "2px 0 0", color: "#0f172a" }}>
-              AI Email Forensics & Threat Analysis
+              MAIL SENTINEL — Email Threat Analysis
             </h1>
           </div>
         </div>
 
-        {/* ACTION BUTTONS & PII COMPLIANCE */}
+        {/* ACTION BUTTONS */}
         <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
           {analysis && (
             <button
-              onClick={() => generateInvestigativePdf(analysis, { piiRedacted })}
+              onClick={() => generateInvestigativePdf(analysis)}
               className="primary-button"
               style={{
                 display: "flex",
@@ -213,26 +204,6 @@ export default function AnalyzeEmail({
             </button>
           )}
 
-          <button
-            onClick={() => setPiiRedacted(!piiRedacted)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              padding: "8px 14px",
-              borderRadius: "8px",
-              fontSize: "13px",
-              fontWeight: "600",
-              border: piiRedacted ? "1px solid #16a34a" : "1px solid #cbd5e1",
-              background: piiRedacted ? "#f0fdf4" : "#fff",
-              color: piiRedacted ? "#15803d" : "#475569",
-              cursor: "pointer",
-            }}
-            title="Toggle Privacy Redaction for DPDP/GDPR/Compliance"
-          >
-            {piiRedacted ? <EyeOff size={16} /> : <Eye size={16} />}
-            <span>{piiRedacted ? "PII Redaction: ACTIVE" : "PII Masking: Off"}</span>
-          </button>
         </div>
       </div>
 
@@ -346,7 +317,7 @@ export default function AnalyzeEmail({
                 ))}
               </ul>
               <button
-                onClick={() => generateInvestigativePdf(analysis, { piiRedacted })}
+                onClick={() => generateInvestigativePdf(analysis)}
                 style={{
                   marginTop: "6px",
                   display: "inline-flex",
@@ -494,7 +465,7 @@ export default function AnalyzeEmail({
                   </span>
                   <div style={{ marginTop: "6px" }}>
                     <strong style={{ fontSize: "14px", fontFamily: "monospace", color: "#1e293b" }}>
-                      {piiRedacted ? maskSensitiveText(analysis.earliestNodeIP || "N/A") : analysis.earliestNodeIP || "Private/Internal"}
+                      {analysis.earliestNodeIP || "Private/Internal"}
                     </strong>
                     <span style={{ display: "block", fontSize: "11px", color: "#64748b", marginTop: "2px" }}>
                       {analysis.originGeo?.country_name || "Internal Subnet"} · {analysis.originGeo?.city || "Local"}
@@ -557,17 +528,8 @@ export default function AnalyzeEmail({
             {[
               { id: "overview", label: "Executive Summary", icon: FileText },
               { id: "ai_classifier", label: `AI/ML Model (${analysis.aiClassification?.primaryClass || "5-Class"})`, icon: Cpu },
-              { id: "fraud", label: `Fraud Patterns (${analysis.fraudAudit?.detectedCount || 0})`, icon: AlertTriangle },
-              { id: "domain_intel", label: "Domain & WHOIS", icon: Globe2 },
               { id: "formal_report", label: "Investigation Report", icon: FileText },
-              { id: "nlp", label: `NLP & BEC Cues (${analysis.nlpAudit?.detectedTriggers?.length || 0})`, icon: Zap },
-              { id: "auth", label: "Protocol & Alignment", icon: ShieldCheck },
-              { id: "route", label: `Mail Hop Trace (${analysis.hopTrace?.totalHops || 0})`, icon: Network },
-              { id: "exonerator", label: analysis.isTorExitNode ? "ExoneraTor (Tor Alert!)" : "ExoneraTor (Tor Forensics)", icon: ShieldAlert },
               { id: "origin", label: "Origin Radar & Geo", icon: Globe2 },
-              { id: "attribution", label: "Attribution Graph", icon: Share2 },
-              { id: "links", label: `IOCs & Links (${analysis.totalLinks})`, icon: Link2 },
-              { id: "headers", label: `Raw Headers (${analysis.headers?.length || 0})`, icon: Code },
             ].map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -622,12 +584,12 @@ export default function AnalyzeEmail({
 
                 <div>
                   <span>Sender (From)</span>
-                  <strong>{piiRedacted ? maskSensitiveText(analysis.from) : analysis.from}</strong>
+                  <strong>{analysis.from}</strong>
                 </div>
 
                 <div>
                   <span>Recipient (To)</span>
-                  <strong>{piiRedacted ? maskSensitiveText(analysis.to) : analysis.to}</strong>
+                  <strong>{analysis.to}</strong>
                 </div>
 
                 <div>
@@ -775,7 +737,7 @@ export default function AnalyzeEmail({
                 </div>
                 <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                   <span style={{ padding: "4px 10px", borderRadius: "6px", background: "#f1f5f9", fontSize: "11px", fontWeight: "700", color: "#475569" }}>
-                    Engine: {analysis.aiClassification?.modelEngine || "AegisEnsemble-v4.2-Hybrid"}
+                    Engine: {analysis.aiClassification?.modelEngine || "MailSentinel-Ensemble-v4.2-Hybrid"}
                   </span>
                   <span style={{ padding: "4px 10px", borderRadius: "6px", background: "#eff6ff", fontSize: "11px", fontWeight: "700", color: "#2563eb", border: "1px solid #bfdbfe" }}>
                     {analysis.aiClassification?.featuresAssessed || 24} Feature Vectors
@@ -1245,28 +1207,7 @@ export default function AnalyzeEmail({
 
                 <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
                   <button
-                    onClick={() => setPiiRedacted(!piiRedacted)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      padding: "8px 14px",
-                      borderRadius: "6px",
-                      fontSize: "12px",
-                      fontWeight: "600",
-                      background: piiRedacted ? "rgba(34, 197, 94, 0.2)" : "rgba(255, 255, 255, 0.1)",
-                      border: piiRedacted ? "1px solid #22c55e" : "1px solid rgba(255, 255, 255, 0.2)",
-                      color: piiRedacted ? "#4ade80" : "#fff",
-                      cursor: "pointer",
-                    }}
-                    title="Toggle PII Masking"
-                  >
-                    {piiRedacted ? <EyeOff size={14} /> : <Eye size={14} />}
-                    <span>{piiRedacted ? "PII: REDACTED" : "PII: RAW"}</span>
-                  </button>
-
-                  <button
-                    onClick={() => generateSection65BCertificatePdf(analysis, { piiRedacted })}
+                    onClick={() => generateSection65BCertificatePdf(analysis)}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -1286,7 +1227,7 @@ export default function AnalyzeEmail({
                   </button>
 
                   <button
-                    onClick={() => generateInvestigativePdf(analysis, { piiRedacted })}
+                    onClick={() => generateInvestigativePdf(analysis)}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -1380,12 +1321,6 @@ export default function AnalyzeEmail({
                     <div>
                       <strong style={{ color: "#0f172a" }}>Evidence File:</strong> {analysis.fileName}
                     </div>
-                    <div>
-                      <strong style={{ color: "#0f172a" }}>PII Status:</strong>{" "}
-                      <span style={{ color: piiRedacted ? "#16a34a" : "#dc2626", fontWeight: "700" }}>
-                        {piiRedacted ? "Redacted (GDPR/DPDP Compliant)" : "Unmasked Law Enforcement Evidence"}
-                      </span>
-                    </div>
                   </div>
                 </div>
 
@@ -1476,13 +1411,13 @@ export default function AnalyzeEmail({
                     <div>
                       <span style={{ color: "#64748b", fontWeight: "600", display: "block" }}>Sender Header (From):</span>
                       <strong style={{ color: "#0f172a" }}>
-                        {piiRedacted ? maskSensitiveText(analysis.from) : analysis.from}
+                        {analysis.from}
                       </strong>
                     </div>
                     <div>
                       <span style={{ color: "#64748b", fontWeight: "600", display: "block" }}>Recipient Header (To):</span>
                       <strong style={{ color: "#0f172a" }}>
-                        {piiRedacted ? maskSensitiveText(analysis.to) : analysis.to}
+                        {analysis.to}
                       </strong>
                     </div>
                     <div>
@@ -1652,7 +1587,7 @@ export default function AnalyzeEmail({
                     <div style={{ background: "#f8fafc", padding: "10px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
                       <span style={{ color: "#64748b", display: "block" }}>Earliest Sending Node IP:</span>
                       <strong style={{ fontFamily: "monospace" }}>
-                        {piiRedacted ? maskSensitiveText(analysis.earliestNodeIP || "N/A") : analysis.earliestNodeIP || "Private/Internal"}
+                        {analysis.earliestNodeIP || "Private/Internal"}
                       </strong>
                     </div>
                     <div style={{ background: "#f8fafc", padding: "10px", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
@@ -2261,7 +2196,7 @@ export default function AnalyzeEmail({
                             <div>
                               <strong>IP Address:</strong>{" "}
                               <span style={{ fontFamily: "monospace" }}>
-                                {piiRedacted ? maskSensitiveText(hop.primaryIP || "None") : hop.primaryIP || "None"}
+                                {hop.primaryIP || "None"}
                               </span>
                             </div>
                             <div>
@@ -2560,7 +2495,7 @@ export default function AnalyzeEmail({
                       <div style={{ display: "flex", justifyContent: "space-between" }}>
                         <span style={{ color: "#64748b" }}>Target IP Address:</span>
                         <strong style={{ fontFamily: "monospace", color: "#0f172a" }}>
-                          {piiRedacted ? maskSensitiveText(currentIp) : currentIp}
+                          {currentIp}
                         </strong>
                       </div>
 
@@ -2775,7 +2710,7 @@ export default function AnalyzeEmail({
                         {node.type}
                       </span>
                       <strong style={{ display: "block", fontSize: "12px", color: "#fff", marginTop: "2px", wordBreak: "break-all" }}>
-                        {piiRedacted ? maskSensitiveText(node.label) : node.label}
+                        {node.label}
                       </strong>
                     </div>
                   ))}
@@ -2885,7 +2820,7 @@ export default function AnalyzeEmail({
                         return (
                           <tr key={idx} style={{ borderBottom: "1px solid #f1f5f9" }}>
                             <td style={{ padding: "10px 6px", fontFamily: "monospace", fontSize: "12px", wordBreak: "break-all" }}>
-                              {piiRedacted ? maskSensitiveText(url) : url}
+                              {url}
                             </td>
                             <td style={{ padding: "10px 6px" }}>
                               <span
@@ -2950,7 +2885,7 @@ export default function AnalyzeEmail({
                       <tr key={idx} style={{ borderBottom: "1px solid #f1f5f9" }}>
                         <td style={{ padding: "6px 10px", fontWeight: "700", color: "#334155" }}>{h.key}</td>
                         <td style={{ padding: "6px 10px", color: "#64748b", wordBreak: "break-all" }}>
-                          {piiRedacted ? maskSensitiveText(String(h.value)) : String(h.value)}
+                          {String(h.value)}
                         </td>
                       </tr>
                     ))}
@@ -2978,7 +2913,7 @@ export default function AnalyzeEmail({
                     color: "#1e293b",
                   }}
                 >
-                  {piiRedacted ? maskSensitiveText(analysis.bodyPreview) : analysis.bodyPreview}
+                  {analysis.bodyPreview}
                 </pre>
               </div>
             </div>

@@ -1,17 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Sidebar from "./components/Sidebar";
 import { navItems } from "./constants/navigation";
 import Topbar from "./components/Topbar";
+import AuthPage from "./pages/AuthPage";
 import Dashboard from "./pages/Dashboard";
 import AnalyzeEmail from "./pages/AnalyzeEmail";
-import BulkScan from "./pages/BulkScan";
 import ThreatIntelligence from "./pages/ThreatIntelligence";
-import DataBreachLookup from "./pages/DataBreachLookup";
 import GeoIPLookup from "./pages/GeoIPLookup";
 import ForensicLedger from "./pages/ForensicLedger";
 import Reports from "./pages/Reports";
-import CaseManagement from "./pages/CaseManagement";
 import SettingsPage from "./pages/SettingsPage";
+import { authRequest } from "./services/authService";
+import { readScanHistory, recordScanHistory } from "./services/scanHistoryService";
 import { analyzeEmlFile, DEFAULT_SETTINGS } from "./services/emailAnalyzer";
 import "./App.css";
 
@@ -22,8 +22,79 @@ function App() {
   const [analysis, setAnalysis] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [dragging, setDragging] = useState(false);
-  const [notifications, setNotifications] = useState(false);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
+  const [sessionCheck, setSessionCheck] = useState(0);
+  const [scanHistory, setScanHistory] = useState([]);
+  const [scanHistoryError, setScanHistoryError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    authRequest("me")
+      .then(({ user: sessionUser }) => {
+        if (!active) return;
+        setUser(sessionUser);
+        if (sessionUser) {
+          try {
+            setScanHistory(readScanHistory(sessionUser.email));
+            setScanHistoryError("");
+          } catch (error) {
+            console.error("Unable to load scan history:", error);
+            setScanHistory([]);
+            setScanHistoryError(error.message || "Unable to load saved scan history.");
+          }
+        } else {
+          setScanHistory([]);
+          setScanHistoryError("");
+        }
+      })
+      .catch((error) => {
+        if (active) setAuthError(error.message || "Unable to reach the authentication service.");
+      })
+      .finally(() => {
+        if (active) setAuthLoading(false);
+      });
+
+    return () => { active = false; };
+  }, [sessionCheck]);
+
+  const handleLogout = async () => {
+    try {
+      await authRequest("logout", { method: "POST" });
+      setUser(null);
+      setAuthError("");
+      setScanHistory([]);
+      setScanHistoryError("");
+    } catch (error) {
+      setAuthError(error.message || "Unable to sign out. Please try again.");
+    }
+  };
+
+  const retrySessionCheck = () => {
+    setAuthLoading(true);
+    setAuthError("");
+    setSessionCheck((check) => check + 1);
+  };
+
+  if (authLoading) {
+    return <main className="auth-screen"><p className="auth-loading">Checking your session...</p></main>;
+  }
+
+  if (!user) {
+    return (
+      <AuthPage
+        initialError={authError}
+        onAuthenticated={(authenticatedUser) => {
+          setUser(authenticatedUser);
+          setAuthError("");
+        }}
+        onRetry={retrySessionCheck}
+      />
+    );
+  }
 
   const selectedNav =
     navItems.find((item) => item.id === activePage)?.label ||
@@ -59,7 +130,7 @@ function App() {
     setAnalyzing(true);
     try {
       const result = await analyzeEmlFile(file, settings);
-      setAnalysis(result);
+      handleAnalysisComplete(result);
       return result;
     } catch (error) {
       console.error("Analysis failed:", error);
@@ -72,10 +143,13 @@ function App() {
 
   const handleAnalysisComplete = (result) => {
     setAnalysis(result);
-  };
-
-  const handleSelectEmailFromBulk = (bulkResult) => {
-    setAnalysis(bulkResult);
+    try {
+      setScanHistory(recordScanHistory(user.email, result));
+      setScanHistoryError("");
+    } catch (error) {
+      console.error("Unable to save scan history:", error);
+      setScanHistoryError(error.message || "Unable to save this scan to history.");
+    }
   };
 
   return (
@@ -93,9 +167,9 @@ function App() {
           pageTitle={pageTitle}
           sidebarOpen={sidebarOpen}
           setSidebarOpen={setSidebarOpen}
-          notifications={notifications}
-          setNotifications={setNotifications}
-          recentScanCount={analysis ? 1 : 0}
+          user={user}
+          onLogout={handleLogout}
+          authError={authError}
         />
 
         <section className="content">
@@ -104,6 +178,8 @@ function App() {
               file={file}
               analysis={analysis}
               analyzing={analyzing}
+              scanHistory={scanHistory}
+              scanHistoryError={scanHistoryError}
               dragging={dragging}
               setDragging={setDragging}
               handleDrop={handleDrop}
@@ -125,30 +201,11 @@ function App() {
             />
           )}
 
-          {activePage === "cases" && (
-            <CaseManagement
-              analysis={analysis}
-              setActivePage={setActivePage}
-            />
-          )}
-
-          {activePage === "bulk" && (
-            <BulkScan
-              onSelectEmail={handleSelectEmailFromBulk}
-              setActivePage={setActivePage}
-              settings={settings}
-            />
-          )}
-
           {activePage === "intelligence" && (
             <ThreatIntelligence
               analysis={analysis}
               setActivePage={setActivePage}
             />
-          )}
-
-          {activePage === "breach" && (
-            <DataBreachLookup analysis={analysis} />
           )}
 
           {activePage === "geoip" && (

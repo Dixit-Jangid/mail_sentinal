@@ -316,9 +316,12 @@ export async function resolveDomainIntelligence(domain) {
 
   let serverData = null;
 
-  // 1. Try local server API
+  // 1. Try local server API with a quick timeout to avoid blocking the overall analysis.
   try {
-    const res = await fetch(`/api/domain-intel?domain=${encodeURIComponent(domain)}`);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 1500);
+    const res = await fetch(`/api/domain-intel?domain=${encodeURIComponent(domain)}`, { signal: controller.signal });
+    clearTimeout(timeoutId);
     if (res.ok) {
       serverData = await res.json();
     }

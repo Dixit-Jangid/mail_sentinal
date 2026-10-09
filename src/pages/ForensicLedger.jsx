@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import {
   Database,
   LockKeyhole,
@@ -8,11 +8,8 @@ import {
   ShieldCheck,
   FileSearch,
   RefreshCw,
-  Clock,
   UserCheck,
-  AlertTriangle,
   History,
-  FileBadge,
 } from "lucide-react";
 import ModulePage from "../components/ModulePage";
 import { getCustodyLog, recordCustodyEvent, DEFAULT_INVESTIGATOR } from "../services/chainOfCustodyService";
@@ -21,32 +18,31 @@ export default function ForensicLedger({ analysis, setActivePage }) {
   const [copied, setCopied] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [verificationResult, setVerificationResult] = useState(null);
-  const [custodyLogs, setCustodyLogs] = useState([]);
+  const [verificationLogs, setVerificationLogs] = useState([]);
 
-  useEffect(() => {
-    if (analysis?.id) {
-      const logs = getCustodyLog(analysis.id);
-      if (logs.length > 0) {
-        setCustodyLogs(logs);
-      } else {
-        // Fallback default genesis log
-        setCustodyLogs([
-          {
-            id: `GENESIS-${analysis.id}`,
-            action: "EVIDENCE_INGESTION_&_HASHING",
-            timestamp: new Date().toISOString(),
-            formattedTime: analysis.analyzedAt,
-            investigator: DEFAULT_INVESTIGATOR.name,
-            investigatorRole: DEFAULT_INVESTIGATOR.role,
-            organization: DEFAULT_INVESTIGATOR.organization,
-            details: `Source EML '${analysis.fileName}' ingested. Bit-for-bit SHA-256 computed.`,
-            sha256Digest: analysis.sha256,
-            integrityStatus: "SECURE",
-          },
-        ]);
-      }
-    }
+  const baseCustodyLogs = useMemo(() => {
+    if (!analysis?.id) return [];
+
+    const logs = getCustodyLog(analysis.id);
+    if (logs.length > 0) return logs;
+
+    return [
+      {
+        id: `GENESIS-${analysis.id}`,
+        action: "EVIDENCE_INGESTION_&_HASHING",
+        timestamp: new Date().toISOString(),
+        formattedTime: analysis.analyzedAt,
+        investigator: DEFAULT_INVESTIGATOR.name,
+        investigatorRole: DEFAULT_INVESTIGATOR.role,
+        organization: DEFAULT_INVESTIGATOR.organization,
+        details: `Source EML '${analysis.fileName}' ingested. Bit-for-bit SHA-256 computed.`,
+        sha256Digest: analysis.sha256,
+        integrityStatus: "SECURE",
+      },
+    ];
   }, [analysis]);
+
+  const custodyLogs = useMemo(() => [...baseCustodyLogs, ...verificationLogs], [baseCustodyLogs, verificationLogs]);
 
   const copyHash = () => {
     if (!analysis?.sha256) return;
@@ -80,7 +76,7 @@ export default function ForensicLedger({ analysis, setActivePage }) {
         sha256: analysis.sha256,
       });
       if (event) {
-        setCustodyLogs((prev) => [...prev, event]);
+        setVerificationLogs((prev) => [...prev, event]);
       }
     }, 800);
   };

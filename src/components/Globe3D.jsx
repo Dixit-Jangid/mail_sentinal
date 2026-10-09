@@ -1,30 +1,6 @@
-﻿import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { RotateCw, ZoomIn, ZoomOut, Crosshair, MapPin, Loader, Shield, ShieldAlert } from "lucide-react";
-
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Open-source Earth texture URLs (NASA Blue Marble / Three.js CDN)
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-const EARTH_TEXTURE_URLS = [
-  "https://unpkg.com/three@0.160.1/examples/textures/planets/earth_atmos_2048.jpg",
-  "https://raw.githubusercontent.com/mrdoob/three.js/r160/examples/textures/planets/earth_atmos_2048.jpg",
-  "https://raw.githubusercontent.com/turban/webgl-earth/master/images/2_no_clouds_4k.jpg",
-];
-
-const EARTH_SPECULAR_URLS = [
-  "https://unpkg.com/three@0.160.1/examples/textures/planets/earth_specular_2048.jpg",
-  "https://raw.githubusercontent.com/mrdoob/three.js/r160/examples/textures/planets/earth_specular_2048.jpg",
-];
-
-const EARTH_NORMAL_URLS = [
-  "https://unpkg.com/three@0.160.1/examples/textures/planets/earth_normal_2048.jpg",
-  "https://raw.githubusercontent.com/mrdoob/three.js/r160/examples/textures/planets/earth_normal_2048.jpg",
-];
-
-const CLOUD_TEXTURE_URLS = [
-  "https://unpkg.com/three@0.160.1/examples/textures/planets/earth_clouds_1024.png",
-  "https://raw.githubusercontent.com/mrdoob/three.js/r160/examples/textures/planets/earth_clouds_1024.png",
-];
+import { RotateCw, ZoomIn, ZoomOut, Crosshair, MapPin, Shield, ShieldAlert } from "lucide-react";
 
 // Arc colour palette per hop index
 const ARC_COLORS = ["#ff4444", "#ffaa00", "#00e5ff", "#00ff88", "#aa44ff", "#ff6699", "#44aaff"];
@@ -54,22 +30,7 @@ function createArcCurve(from, to, radius = 1.0, elevation = 0.4) {
 }
 
 /**
- * Attempts to load a texture from a list of fallback URLs.
- */
-function loadTextureWithFallback(loader, urls) {
-  return new Promise((resolve, reject) => {
-    let idx = 0;
-    const tryNext = () => {
-      if (idx >= urls.length) { reject(new Error("All texture URLs failed")); return; }
-      const url = urls[idx++];
-      loader.load(url, (tex) => resolve(tex), undefined, () => { tryNext(); });
-    };
-    tryNext();
-  });
-}
-
-/**
- * Globe3D â€” Interactive 3D WebGL Earth with:
+ * Globe3D — Interactive 3D WebGL Earth with:
  *   - Globe STATIC by default (autoRotate = false, user can enable)
  *   - Multi-hop Bezier arc flight paths between email relay IPs
  *   - Glowing animated particles flying along each arc
@@ -77,17 +38,15 @@ function loadTextureWithFallback(loader, urls) {
  *   - Interactive hop selector panel
  *
  * Props:
- *   geoData   â€” single IP lookup result (single-point mode)
- *   routeHops â€” array of hop objects from /api/geoip-route (multi-hop mode)
+ *   geoData   — single IP lookup result (single-point mode)
+ *   routeHops — array of hop objects from /api/geoip-route (multi-hop mode)
  */
 export default function Globe3D({ geoData, routeHops = [] }) {
   const mountRef = useRef(null);
-  // Globe is STILL by default â€” user must click the rotate button to spin it
+  // Globe is STILL by default — user must click the rotate button to spin it
   const [autoRotate, setAutoRotate] = useState(false);
   const autoRotateRef = useRef(false);
   const [zoomLevel, setZoomLevel] = useState(2.8);
-  const [textureLoading, setTextureLoading] = useState(true);
-  const [textureError, setTextureError] = useState(false);
   const [activeHopIdx, setActiveHopIdx] = useState(0);
 
   const sceneRef = useRef(null);
@@ -96,7 +55,6 @@ export default function Globe3D({ geoData, routeHops = [] }) {
   const globeGroupRef = useRef(null);
   const markerGroupRef = useRef(null);
   const arcGroupRef = useRef(null);
-  const cloudsRef = useRef(null);
   const isDraggingRef = useRef(false);
   const previousMousePositionRef = useRef({ x: 0, y: 0 });
   const animFrameRef = useRef(null);
@@ -138,6 +96,8 @@ export default function Globe3D({ geoData, routeHops = [] }) {
     container.innerHTML = "";
     container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
+    let disposed = false;
+    const earthTextures = [];
 
     const globeGroup = new THREE.Group();
     scene.add(globeGroup);
@@ -168,8 +128,8 @@ export default function Globe3D({ geoData, routeHops = [] }) {
     scene.add(new THREE.Points(starsGeo, starsMat));
 
     // Lighting
-    scene.add(new THREE.AmbientLight("#d0e8ff", 0.4));
-    const sunLight = new THREE.DirectionalLight("#fff5e0", 2.2);
+    scene.add(new THREE.AmbientLight("#d0e8ff", 0.3));
+    const sunLight = new THREE.DirectionalLight("#fff5e0", 2);
     sunLight.position.set(5, 3, 5);
     scene.add(sunLight);
     const fillLight = new THREE.DirectionalLight("#2060ff", 0.3);
@@ -204,51 +164,44 @@ export default function Globe3D({ geoData, routeHops = [] }) {
     scene.add(new THREE.Mesh(glowGeo, glowMat));
 
     // Earth
-    const loader = new THREE.TextureLoader();
-    loader.crossOrigin = "anonymous";
     const earthGeo = new THREE.SphereGeometry(radius, 64, 64);
-    const earthMesh = new THREE.Mesh(earthGeo, new THREE.MeshPhongMaterial({ color: "#1a3a5c" }));
+    const earthMaterial = new THREE.MeshPhongMaterial({
+      color: "#d9e5f2",
+      specular: new THREE.Color("#647b99"),
+      shininess: 22,
+    });
+    const earthMesh = new THREE.Mesh(earthGeo, earthMaterial);
     globeGroup.add(earthMesh);
 
-    (async () => {
-      try {
-        const [earthTex, specTex, normalTex] = await Promise.allSettled([
-          loadTextureWithFallback(loader, EARTH_TEXTURE_URLS),
-          loadTextureWithFallback(loader, EARTH_SPECULAR_URLS),
-          loadTextureWithFallback(loader, EARTH_NORMAL_URLS),
-        ]);
+    const textureLoader = new THREE.TextureLoader();
+    const loadEarthTexture = (filename, applyTexture) => {
+      textureLoader.load(
+        `${import.meta.env.BASE_URL}${filename}`,
+        (texture) => {
+          if (disposed) {
+            texture.dispose();
+            return;
+          }
+          earthTextures.push(texture);
+          applyTexture(texture);
+          earthMaterial.needsUpdate = true;
+        },
+        undefined,
+        (error) => console.error(`Unable to load Earth texture "${filename}":`, error)
+      );
+    };
 
-        if (earthTex.status === "fulfilled") {
-          const realMat = new THREE.MeshPhongMaterial({
-            map: earthTex.value,
-            ...(specTex.status === "fulfilled" && { specularMap: specTex.value }),
-            ...(normalTex.status === "fulfilled" && { normalMap: normalTex.value, normalScale: new THREE.Vector2(2, 2) }),
-            specular: new THREE.Color("#113355"),
-            shininess: 25,
-          });
-          earthMesh.material.dispose();
-          earthMesh.material = realMat;
-          setTextureLoading(false);
-
-          loadTextureWithFallback(loader, CLOUD_TEXTURE_URLS)
-            .then((cloudTex) => {
-              const cloudGeo = new THREE.SphereGeometry(radius * 1.01, 64, 64);
-              const cloudMat = new THREE.MeshPhongMaterial({ map: cloudTex, alphaMap: cloudTex, transparent: true, opacity: 0.35, depthWrite: false });
-              const cloudMesh = new THREE.Mesh(cloudGeo, cloudMat);
-              globeGroup.add(cloudMesh);
-              cloudsRef.current = cloudMesh;
-            })
-            .catch(() => {});
-        } else throw new Error("Earth texture failed");
-      } catch {
-        setTextureError(true);
-        setTextureLoading(false);
-        earthMesh.material.dispose();
-        earthMesh.material = new THREE.MeshPhongMaterial({ color: "#1a4a7a", specular: "#2063ab", shininess: 15 });
-        const wireGeo = new THREE.SphereGeometry(radius * 1.002, 36, 18);
-        globeGroup.add(new THREE.Mesh(wireGeo, new THREE.MeshBasicMaterial({ color: "#38bdf8", wireframe: true, transparent: true, opacity: 0.15 })));
-      }
-    })();
+    loadEarthTexture("earth-atmos-2048.jpg", (texture) => {
+      texture.colorSpace = THREE.SRGBColorSpace;
+      earthMaterial.map = texture;
+    });
+    loadEarthTexture("earth-normal-2048.jpg", (texture) => {
+      earthMaterial.normalMap = texture;
+      earthMaterial.normalScale.set(0.45, 0.45);
+    });
+    loadEarthTexture("earth-specular-2048.jpg", (texture) => {
+      earthMaterial.specularMap = texture;
+    });
 
     // Mouse drag
     const domElement = renderer.domElement;
@@ -298,8 +251,6 @@ export default function Globe3D({ geoData, routeHops = [] }) {
         globeGroupRef.current.rotation.y += 0.0015;
       }
 
-      if (cloudsRef.current) cloudsRef.current.rotation.y += 0.0004;
-
       // Animate pulse rings
       if (markerGroupRef.current) {
         markerGroupRef.current.children.forEach((child) => {
@@ -336,10 +287,15 @@ export default function Globe3D({ geoData, routeHops = [] }) {
       window.removeEventListener("mouseup", onMouseUp);
       domElement.removeEventListener("wheel", onWheel);
       window.removeEventListener("resize", onResize);
-      earthGeo.dispose(); starsGeo.dispose(); starsMat.dispose();
+      disposed = true;
+      earthTextures.forEach((texture) => texture.dispose());
+      earthGeo.dispose();
+      earthMaterial.dispose();
+      starsGeo.dispose();
+      starsMat.dispose();
       glowGeo.dispose(); glowMat.dispose(); renderer.dispose();
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Single-point marker (when no route hops)
   useEffect(() => {
@@ -519,32 +475,19 @@ export default function Globe3D({ geoData, routeHops = [] }) {
     <div style={{ position: "relative", width: "100%", height: "520px", background: "#020d1a", borderRadius: "12px", overflow: "hidden", border: "1px solid #0f2d4a", boxShadow: "0 16px 40px rgba(0,0,0,0.5)" }}>
       <div ref={mountRef} style={{ width: "100%", height: "100%", cursor: "grab" }} />
 
-      {textureLoading && (
-        <div style={{ position: "absolute", bottom: "50px", left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: "8px", background: "rgba(2,13,26,0.85)", border: "1px solid rgba(56,189,248,0.3)", borderRadius: "20px", padding: "6px 16px", color: "#38bdf8", fontSize: "12px", fontWeight: "600", backdropFilter: "blur(6px)" }}>
-          <Loader size={14} style={{ animation: "spin 1s linear infinite" }} />
-          Loading NASA Earth Texture...
-        </div>
-      )}
-
-      {textureError && (
-        <div style={{ position: "absolute", bottom: "50px", left: "50%", transform: "translateX(-50%)", background: "rgba(40,10,10,0.85)", border: "1px solid #7f1d1d", borderRadius: "20px", padding: "6px 16px", color: "#fca5a5", fontSize: "12px", backdropFilter: "blur(6px)" }}>
-          âš  Texture unavailable â€” check internet connection
-        </div>
-      )}
-
       {/* HUD TOP-LEFT */}
       <div style={{ position: "absolute", top: "16px", left: "16px", pointerEvents: "none", zIndex: 10 }}>
         {/* Title */}
         <div style={{ display: "inline-flex", alignItems: "center", gap: "8px", background: "rgba(2,13,26,0.82)", backdropFilter: "blur(10px)", border: "1px solid rgba(56,189,248,0.4)", padding: "6px 14px", borderRadius: "6px", color: "#38bdf8", fontSize: "11px", fontWeight: "700", letterSpacing: "0.08em", textTransform: "uppercase" }}>
           <Crosshair size={13} />
-          {validHops.length > 1 ? `Email Transmission Â· ${validHops.length} Hops` : "3D Geolocation Radar Â· NASA Blue Marble"}
+          {validHops.length > 1 ? `Email Transmission · ${validHops.length} Hops` : "3D Geolocation Radar · Satellite Imagery"}
         </div>
 
         {/* VPN Detection Badge */}
         {validHops.length > 0 && (
           <div style={{ marginTop: "8px", display: "inline-flex", alignItems: "center", gap: "8px", background: hasVpnInRoute ? "rgba(127,0,0,0.85)" : "rgba(0,40,20,0.85)", backdropFilter: "blur(10px)", border: `1px solid ${hasVpnInRoute ? "#ef4444" : "#10b981"}`, padding: "6px 14px", borderRadius: "6px", color: hasVpnInRoute ? "#fca5a5" : "#6ee7b7", fontSize: "11px", fontWeight: "700", letterSpacing: "0.06em" }}>
             {hasVpnInRoute ? <ShieldAlert size={14} /> : <Shield size={14} />}
-            {hasVpnInRoute ? `VPN / PROXY DETECTED Â· ${detectedVpnHop?.vpnType || "Anonymous Relay"}` : "VPN / PROXY: CLEAN Â· Direct ISP Path"}
+            {hasVpnInRoute ? `VPN / PROXY DETECTED · ${detectedVpnHop?.vpnType || "Anonymous Relay"}` : "VPN / PROXY: CLEAN · Direct ISP Path"}
           </div>
         )}
 
@@ -557,12 +500,12 @@ export default function Globe3D({ geoData, routeHops = [] }) {
             </div>
             <div style={{ marginTop: "4px", color: "#94a3b8", fontFamily: "monospace", fontSize: "11px" }}>IP: {activeHop.ip}</div>
             <div style={{ marginTop: "2px", color: "#38bdf8", fontFamily: "monospace", fontSize: "11px" }}>
-              {Number(activeHop.latitude).toFixed(4)}Â°, {Number(activeHop.longitude).toFixed(4)}Â°
+              {Number(activeHop.latitude).toFixed(4)}°, {Number(activeHop.longitude).toFixed(4)}°
             </div>
             <div style={{ marginTop: "3px", color: "#cbd5e1", fontSize: "11px" }}>{activeHop.isp || activeHop.org}</div>
             {activeHop.isVpn && (
               <div style={{ marginTop: "4px", padding: "3px 8px", borderRadius: "4px", background: "rgba(127,0,0,0.6)", color: "#fca5a5", fontSize: "10px", fontWeight: "700" }}>
-                âš  {activeHop.vpnType}
+                ⚠ {activeHop.vpnType}
               </div>
             )}
           </div>
@@ -576,12 +519,12 @@ export default function Globe3D({ geoData, routeHops = [] }) {
             </div>
             <div style={{ marginTop: "4px", color: "#94a3b8", fontFamily: "monospace", fontSize: "11px" }}>IP: {geoData.ip}</div>
             <div style={{ marginTop: "2px", color: "#38bdf8", fontFamily: "monospace", fontSize: "11px" }}>
-              Lat: {targetLat.toFixed(4)}Â° Â· Lon: {targetLon.toFixed(4)}Â°
+              Lat: {targetLat.toFixed(4)}° · Lon: {targetLon.toFixed(4)}°
             </div>
             <div style={{ marginTop: "4px", color: "#cbd5e1", fontSize: "11px" }}>{geoData.isp || geoData.org}</div>
             {geoData.isVpn && (
               <div style={{ marginTop: "6px", padding: "4px 8px", borderRadius: "4px", background: "rgba(127,0,0,0.6)", color: "#fca5a5", fontSize: "11px", fontWeight: "700" }}>
-                ðŸ›¡ {geoData.vpnType}
+                ⚠ {geoData.vpnType}
               </div>
             )}
           </div>
@@ -614,7 +557,7 @@ export default function Globe3D({ geoData, routeHops = [] }) {
                 display: "flex", alignItems: "center", gap: "5px",
               }}
             >
-              {hop.isVpn ? "âš " : "â—"} Hop {idx + 1}: {hop.ip} ({hop.country_code})
+              {hop.isVpn ? "⚠" : "●"} Hop {idx + 1}: {hop.ip} ({hop.country_code})
               {hop.isVpn && <span style={{ color: "#ff4444", fontWeight: "800" }}>VPN</span>}
             </button>
           ))}
@@ -623,7 +566,7 @@ export default function Globe3D({ geoData, routeHops = [] }) {
 
       {/* Bottom Telemetry Bar */}
       <div style={{ position: "absolute", bottom: "12px", left: "16px", right: "16px", display: "flex", justifyContent: "space-between", pointerEvents: "none", fontSize: "10px", color: "#334155", fontFamily: "monospace", letterSpacing: "0.05em", textTransform: "uppercase" }}>
-        <span>WebGL Â· Three.js Â· NASA Blue Marble Â· Drag to Rotate Â· Scroll to Zoom</span>
+        <span>WebGL · Three.js · Satellite Imagery · Drag to Rotate · Scroll to Zoom</span>
         <span>CAM ALT: {(zoomLevel * 1000).toFixed(0)} KM</span>
       </div>
 
@@ -631,5 +574,3 @@ export default function Globe3D({ geoData, routeHops = [] }) {
     </div>
   );
 }
-
-

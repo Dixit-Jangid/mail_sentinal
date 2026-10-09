@@ -1,12 +1,12 @@
-import { Bell, CheckCircle2, ChevronDown, Menu, ShieldAlert } from "lucide-react";
+import { LogOut, Menu } from "lucide-react";
 
 export default function Topbar({
   pageTitle,
   sidebarOpen,
   setSidebarOpen,
-  notifications,
-  setNotifications,
-  recentScanCount = 0,
+  user,
+  onLogout,
+  authError,
 }) {
   return (
     <header className="topbar">
@@ -26,38 +26,19 @@ export default function Topbar({
       </div>
 
       <div className="topbar-actions">
-        <button
-          className="icon-button notification-button"
-          onClick={() => setNotifications(!notifications)}
-          aria-label="Notifications"
-        >
-          <Bell size={19} />
-          <span className="notification-dot" />
-        </button>
-
         <div className="profile">
-          <div className="avatar">A</div>
+          <div className="avatar">{user?.name?.charAt(0)?.toUpperCase() || "U"}</div>
           <div className="profile-text">
-            <strong>Analyst</strong>
-            <span>Security Operations</span>
+            <strong>{user?.name}</strong>
+            <span>{user?.email}</span>
           </div>
-          <ChevronDown size={15} />
         </div>
+        <button className="icon-button logout-button" onClick={onLogout} aria-label="Log out" title="Log out">
+          <LogOut size={18} />
+        </button>
       </div>
 
-      {notifications && (
-        <div className="notification-panel">
-          <strong>Notifications</strong>
-          <p>
-            <ShieldAlert size={15} />
-            Forensic engine initialized. {recentScanCount > 0 ? `${recentScanCount} email(s) analyzed.` : "Ready for scans."}
-          </p>
-          <p>
-            <CheckCircle2 size={15} />
-            SHA-256 evidence verification: Active.
-          </p>
-        </div>
-      )}
+      {authError && <div className="topbar-auth-error" role="alert">{authError}</div>}
     </header>
   );
 }

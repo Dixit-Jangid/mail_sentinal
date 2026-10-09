@@ -1,6 +1,6 @@
-# 🛡️ AegisMail — Autonomous Email Forensics & Threat Intelligence Platform
+# 🛡️ MAIL SENTINEL — Email Forensics & Threat Intelligence Platform
 
-AegisMail is an advanced, privacy-preserving digital forensics and automated incident response platform engineered for Security Operations Centers (SOCs), incident responders, and cyber crime investigation units. It transforms raw RFC 822 / MIME `.eml` files into court-admissible forensic dossiers, 3D relay hops, social engineering cue breakdowns, and automated containment playbooks.
+MAIL SENTINEL is an advanced, privacy-preserving digital forensics and automated incident response platform engineered for Security Operations Centers (SOCs), incident responders, and cyber crime investigation units. It transforms raw RFC 822 / MIME `.eml` files into court-admissible forensic dossiers, 3D relay hops, social engineering cue breakdowns, and automated containment playbooks.
 
 ---
 
@@ -61,7 +61,7 @@ The full application runs on [http://localhost:5000](http://localhost:5000) with
 ## 🌐 Deployment Options
 
 ### Option A: Static / Serverless (Vercel / Netlify / Cloudflare Pages)
-AegisMail is architected with a client-side **DNS-over-HTTPS (DoH)** fallback via Google Public DNS (`https://dns.google/resolve`), allowing it to perform live domain checks, MX lookups, and SPF/DMARC validations entirely within the browser.
+MAIL SENTINEL is architected with a client-side **DNS-over-HTTPS (DoH)** fallback via Google Public DNS (`https://dns.google/resolve`), allowing it to perform live domain checks, MX lookups, and SPF/DMARC validations entirely within the browser.
 - **Build Command**: `npm run build`
 - **Output Directory**: `dist`
 - **SPA Routing**: Handled automatically via [vercel.json](file:///c:/Users/cherr/OneDrive/Documents/Hackathon/sih-frontend/vercel.json).

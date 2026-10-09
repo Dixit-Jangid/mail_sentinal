@@ -11,10 +11,8 @@ import {
   Check,
   Layers,
   Database,
-  Globe2,
   FileSpreadsheet,
   Code2,
-  Lock,
 } from "lucide-react";
 import ModulePage from "../components/ModulePage";
 import { maskSensitiveText } from "../services/privacyService";

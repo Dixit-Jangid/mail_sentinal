@@ -171,7 +171,6 @@ function extractSnippet(text, match) {
 export function detectAdvancedFraudPatterns({
   subject = "",
   bodyText = "",
-  headers = [],
   replyToMismatch = false,
   displayNameSpoofing = false,
   dangerousAttachmentsCount = 0,

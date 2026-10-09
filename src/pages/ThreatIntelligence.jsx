@@ -1,32 +1,10 @@
-import { useState } from "react";
-import {
-  AlertTriangle,
-  FileSearch,
-  Hash,
-  Link2,
-  Lock,
-  Mail,
-  ShieldAlert,
-  ShieldCheck,
-  Zap,
-  Globe2,
-  Server,
-  Layers,
-  Share2,
-  Activity,
-} from "lucide-react";
+import { AlertTriangle, FileSearch, Hash, Lock, ShieldAlert, Zap, Layers, Share2, Activity, Globe2 } from "lucide-react";
 import ModulePage from "../components/ModulePage";
 import StatCard from "../components/StatCard";
 
 export default function ThreatIntelligence({ analysis, setActivePage }) {
-  const [selectedGraphNode, setSelectedGraphNode] = useState(null);
-
-  const senderDomain = analysis?.from?.includes("@")
-    ? analysis.from.split("@")[1].replace(/[<>]/g, "").trim()
-    : "Unknown";
-
   const correlationNodes = analysis?.correlationGraph?.nodes || [];
-  const correlationEdges = analysis?.correlationGraph?.edges || [];
+  const selectedGraphNode = analysis?.correlationGraph?.selectedNode || null;
 
   return (
     <ModulePage
@@ -34,7 +12,7 @@ export default function ThreatIntelligence({ analysis, setActivePage }) {
       subtitle="Correlation of email indicators with threat intelligence, BEC fraud patterns, domain clusters, and attribution telemetry."
       icon={<ShieldAlert size={28} />}
     >
-      <div className="stat-grid" style={{ marginBottom: "24px" }}>
+      <div className="stat-grid threat-intelligence-stat-grid" style={{ marginBottom: "24px" }}>
         <StatCard
           icon={<AlertTriangle />}
           label="Threat Classification"
@@ -262,7 +240,7 @@ export default function ThreatIntelligence({ analysis, setActivePage }) {
               {correlationNodes.map((node) => (
                 <div
                   key={node.id}
-                  onClick={() => setSelectedGraphNode(node)}
+                  onClick={() => selectedGraphNode && selectedGraphNode.id !== node.id && selectedGraphNode}
                   style={{
                     display: "flex",
                     justifyContent: "space-between",

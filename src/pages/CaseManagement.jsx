@@ -2,41 +2,30 @@ import { useState, useMemo, useEffect } from "react";
 import {
   FolderArchive,
   Search,
-  Filter,
   ShieldAlert,
   CheckCircle2,
-  Clock,
   Layers,
-  ArrowRight,
   Copy,
   Check,
-  Tag,
-  Download,
-  UserCheck,
   User,
-  Plus,
   FileText,
-  AlertTriangle,
   Send,
-  ExternalLink,
-  ShieldCheck,
   Lock,
 } from "lucide-react";
 import ModulePage from "../components/ModulePage";
 import { clusterCampaigns } from "../services/attributionService";
-import { exportStixBundle, exportCsvIocs } from "../services/exportService";
 import { recordCustodyEvent } from "../services/chainOfCustodyService";
 
 const STORAGE_KEY = "aegismail_soc_cases";
 
-export const ANALYSTS = [
+const ANALYSTS = [
   { id: "sarah_chen", name: "Sarah Chen", role: "Senior Forensics Specialist", badge: "CCFE-892" },
   { id: "alex_vance", name: "Alex Vance", role: "SOC Tier 2 Lead", badge: "GCIH-441" },
   { id: "marcus_thorne", name: "Marcus Thorne", role: "Threat Intelligence Analyst", badge: "CTIA-108" },
   { id: "elena_rostova", name: "Elena Rostova", role: "Incident Commander", badge: "CISSP-902" },
 ];
 
-export const STATUS_OPTIONS = [
+const STATUS_OPTIONS = [
   "New",
   "Active Triage",
   "Under Investigation",
@@ -150,14 +139,73 @@ const DEFAULT_CAMPAIGNS = [
   },
 ];
 
-export default function CaseManagement({ analysis, setActivePage }) {
+export default function CaseManagement({ analysis }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("All");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [activeTab, setActiveTab] = useState("cases"); // 'cases' | 'campaigns'
-  const [selectedCase, setSelectedCase] = useState(null);
   const [newNoteText, setNewNoteText] = useState("");
   const [copiedId, setCopiedId] = useState(null);
+
+  const getActiveCase = () => {
+    let storedCases = [];
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) storedCases = JSON.parse(raw);
+    } catch (error) {
+      console.warn("Unable to restore saved case data:", error);
+    }
+
+    const baseList = storedCases.length > 0 ? storedCases : DEFAULT_CAMPAIGNS;
+
+    if (!analysis) {
+      return baseList[0] || null;
+    }
+
+    const activeCaseId = `CASE-${analysis.id.substring(5, 13).toUpperCase()}`;
+    const existingIdx = baseList.findIndex((c) => c.id === activeCaseId || c.sha256 === analysis.sha256);
+
+    const activeCaseObj = {
+      id: activeCaseId,
+      campaign: analysis.attribution?.campaignTag || "Campaign #Active-Investigation",
+      subject: analysis.subject,
+      sender: analysis.from,
+      senderDomain: analysis.senderDomain,
+      category: analysis.primaryClassification,
+      riskScore: analysis.riskScore,
+      riskLevel: analysis.riskLevel,
+      status: analysis.riskScore >= 70 ? "Quarantined" : "Active Triage",
+      assignedAnalyst: ANALYSTS[0].name,
+      analystRole: ANALYSTS[0].role,
+      originIP: analysis.earliestNodeIP || "198.51.100.14",
+      date: analysis.analyzedAt,
+      attribution: analysis.attribution?.infrastructureType || "Analyzed Sender Node",
+      sha256: analysis.sha256,
+      evidence: {
+        fileName: analysis.fileName,
+        fileSize: analysis.fileSize,
+        iocs: [
+          analysis.earliestNodeIP,
+          analysis.senderDomain,
+          ...(analysis.suspiciousLinksList || []),
+        ].filter(Boolean),
+      },
+      notes: [
+        {
+          id: `n-${Date.now()}`,
+          author: ANALYSTS[0].name,
+          time: new Date().toLocaleString(),
+          text: `Forensic docket opened. Multi-factor score: ${analysis.riskScore}/100. Verdict: ${analysis.riskLevel}.`,
+        },
+      ],
+    };
+
+    if (existingIdx >= 0) {
+      return { ...baseList[existingIdx], ...activeCaseObj, notes: baseList[existingIdx].notes || activeCaseObj.notes };
+    }
+
+    return activeCaseObj;
+  };
 
   // Initialize cases with localStorage persistence
   const [cases, setCases] = useState(() => {
@@ -165,7 +213,9 @@ export default function CaseManagement({ analysis, setActivePage }) {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) storedCases = JSON.parse(raw);
-    } catch {}
+    } catch (error) {
+      console.warn("Unable to restore saved case data:", error);
+    }
 
     const baseList = storedCases.length > 0 ? storedCases : DEFAULT_CAMPAIGNS;
 
@@ -218,19 +268,15 @@ export default function CaseManagement({ analysis, setActivePage }) {
     return baseList;
   });
 
-  // Save cases to localStorage on update
+  const [selectedCase, setSelectedCase] = useState(() => getActiveCase());
+
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(cases));
-    } catch {}
-  }, [cases]);
-
-  // Set selected case if not set
-  useEffect(() => {
-    if (!selectedCase && cases.length > 0) {
-      setSelectedCase(cases[0]);
+    } catch (error) {
+      console.warn("Unable to persist cases to localStorage:", error);
     }
-  }, [cases, selectedCase]);
+  }, [cases]);
 
   const copyIoc = (text, id) => {
     navigator.clipboard.writeText(text);

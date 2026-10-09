@@ -104,7 +104,7 @@ export async function checkExonerator(ip, dateInput) {
   // 1. Try backend API first (/api/exonerator)
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
 
     const response = await fetch(
       `/api/exonerator?ip=${encodeURIComponent(cleanIp)}&date=${encodeURIComponent(formattedDate)}`,
@@ -117,7 +117,7 @@ export async function checkExonerator(ip, dateInput) {
       return {
         ...data,
         officialExoneratorUrl,
-        source: "AegisMail Telemetry + TorDNSEL",
+        source: "MAIL SENTINEL Telemetry + TorDNSEL",
       };
     }
   } catch {
@@ -131,7 +131,10 @@ export async function checkExonerator(ip, dateInput) {
       const reversedIp = reverseIPv4(cleanIp);
       const dselDomain = `${reversedIp}.dnsel.torproject.org`;
 
-      const dohResponse = await fetch(`https://dns.google/resolve?name=${encodeURIComponent(dselDomain)}&type=A`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+      const dohResponse = await fetch(`https://dns.google/resolve?name=${encodeURIComponent(dselDomain)}&type=A`, { signal: controller.signal });
+      clearTimeout(timeoutId);
       if (dohResponse.ok) {
         const dohData = await dohResponse.json();
         const answers = dohData.Answer?.map((a) => a.data) || [];

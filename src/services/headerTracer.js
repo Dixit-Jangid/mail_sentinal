@@ -440,7 +440,7 @@ export function auditRelayManipulation(hops = [], headers = []) {
     indicators,
     xMailer: xMailer || "Not Specified",
     userAgent: userAgent || "Not Specified",
-    xOriginatingIp: xOriginatingIp ? xOriginatingIp.replace(/[\[\]]/g, "") : null,
+    xOriginatingIp: xOriginatingIp ? xOriginatingIp.replace(/[[\]]/g, "") : null,
     clientSoftwareType,
   };
 }

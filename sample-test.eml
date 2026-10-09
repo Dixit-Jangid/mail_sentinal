@@ -1,0 +1,9 @@
+﻿From: tester@example.com
+To: victim@example.com
+Subject: Urgent verification required
+Date: Fri, 1 Jan 2021 10:00:00 +0000
+Message-ID: <test@example.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+This is a test email. Please verify your account immediately and click http://login-secure.example.com/verify.

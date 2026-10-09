@@ -8,9 +8,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Shield,
-  Activity,
   ExternalLink,
-  Calendar,
 } from "lucide-react";
 import ModulePage from "../components/ModulePage";
 import Globe3D from "../components/Globe3D";

@@ -242,35 +242,42 @@ export async function analyzeEmlFile(file, customSettings = {}) {
     dangerousAttachmentsCount: dangerousAttachments.length,
   });
 
-  // 10. Real-Time Domain Intelligence & RDAP/WHOIS Query
+  // 10-12. Run independent enrichment checks concurrently to reduce analysis latency.
   let domainIntel = null;
-  if (senderDomain && senderDomain.includes(".")) {
-    try {
-      domainIntel = await resolveDomainIntelligence(senderDomain);
-    } catch {
-      // Non-blocking
-    }
-  }
-
-  // 11. Origin Geolocation Resolution
   let originGeo = null;
-  if (earliestNodeIP) {
-    try {
-      originGeo = await lookupGeoIP(earliestNodeIP);
-    } catch {
-      // Non-blocking
-    }
+  let exonerator = null;
+
+  const enrichmentPromises = [];
+
+  if (senderDomain && senderDomain.includes(".")) {
+    enrichmentPromises.push(
+      resolveDomainIntelligence(senderDomain)
+        .then((value) => { domainIntel = value; })
+        .catch(() => { domainIntel = null; })
+    );
   }
 
-  // 12. The Tor Project ExoneraTor Relay Verification (IP + Date)
-  let exonerator = null;
   if (earliestNodeIP) {
-    try {
-      exonerator = await checkExonerator(earliestNodeIP, dateStr);
-    } catch (exErr) {
-      console.warn("ExoneraTor check failed:", exErr);
-    }
+    enrichmentPromises.push(
+      lookupGeoIP(earliestNodeIP)
+        .then((value) => { originGeo = value; })
+        .catch(() => { originGeo = null; })
+    );
+
+    enrichmentPromises.push(
+      checkExonerator(earliestNodeIP, dateStr)
+        .then((value) => { exonerator = value; })
+        .catch((exErr) => {
+          console.warn("ExoneraTor check failed:", exErr);
+          exonerator = null;
+        })
+    );
   }
+
+  if (enrichmentPromises.length > 0) {
+    await Promise.allSettled(enrichmentPromises);
+  }
+
   if (!exonerator && earliestNodeIP) {
     exonerator = {
       ip: earliestNodeIP,

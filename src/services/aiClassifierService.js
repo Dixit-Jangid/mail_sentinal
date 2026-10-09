@@ -64,8 +64,6 @@ export const CLASS_METADATA = {
  * Multi-vector feature extractor and classifier.
  */
 export function classifyEmailThreat({
-  subject = "",
-  bodyText = "",
   spf = "Unknown",
   dkim = "Unknown",
   dmarc = "Unknown",
@@ -80,8 +78,6 @@ export function classifyEmailThreat({
   isTorExitNode = false,
   hopTrace = {},
 }) {
-  const textLower = `${subject} ${bodyText}`.toLowerCase();
-
   // Raw class logit accumulators
   let logits = {
     Legitimate: 10,

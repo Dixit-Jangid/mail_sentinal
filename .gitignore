@@ -34,3 +34,6 @@ Thumbs.db
 
 # Nested repositories
 Email-Forensics/
+
+# Locally registered account data
+server/data/

@@ -1,4 +1,4 @@
-import { Settings, Sliders, CheckCircle2, RotateCcw, Shield, Lock, EyeOff, FileCheck } from "lucide-react";
+import { Settings, Sliders, CheckCircle2, RotateCcw, Shield } from "lucide-react";
 import ModulePage from "../components/ModulePage";
 import { DEFAULT_SETTINGS } from "../services/emailAnalyzer";
 import { RETENTION_POLICIES, COMPLIANCE_FRAMEWORKS } from "../services/privacyService";

@@ -1,12 +1,9 @@
 import {
-  Activity,
   AlertTriangle,
-  Database,
   Download,
   FileSearch,
   LockKeyhole,
   Mail,
-  Server,
   ShieldAlert,
   ShieldCheck,
   UploadCloud,
@@ -20,7 +17,6 @@ import SummaryRow from "../components/SummaryRow";
 import AuthBadge from "../components/AuthBadge";
 import Indicator from "../components/Indicator";
 import LedgerRow from "../components/LedgerRow";
-import RiskRemediesSection from "../components/RiskRemediesSection";
 
 export default function Dashboard({
   file,
@@ -32,10 +28,21 @@ export default function Dashboard({
   setFile,
   analyzeFile,
   analyzing,
+  scanHistory,
+  scanHistoryError,
   setActivePage,
 }) {
+  const threatsDetected = scanHistory.filter((scan) => scan.phishingDetected).length;
+  const highRiskEmails = scanHistory.filter((scan) => scan.riskLevel === "High Risk").length;
+  const threatsBlocked = scanHistory.filter((scan) => scan.blocked).length;
+
   return (
     <>
+      {scanHistoryError && (
+        <div className="auth-error" role="alert">
+          {scanHistoryError}
+        </div>
+      )}
       <div className="page-heading">
         <div>
           <div className="breadcrumb">
@@ -61,33 +68,32 @@ export default function Dashboard({
         <StatCard
           icon={<Mail />}
           label="Emails analyzed"
-          value={analysis ? "1" : "0"}
-          change={analysis ? "Current" : "Ready"}
+          value={String(scanHistory.length)}
+          change={scanHistory.length ? "History total" : "No scans"}
         />
 
         <StatCard
           icon={<ShieldAlert />}
           label="Threats detected"
-          value={analysis?.phishingDetected ? "1" : "0"}
-          change={analysis ? (analysis.phishingDetected ? "Flagged" : "Clean") : "None"}
-          danger={analysis?.phishingDetected}
-          success={analysis && !analysis?.phishingDetected}
+          value={String(threatsDetected)}
+          change={scanHistory.length ? "Across history" : "None"}
+          danger={threatsDetected > 0}
+          success={scanHistory.length > 0 && threatsDetected === 0}
         />
 
         <StatCard
           icon={<AlertTriangle />}
           label="High-risk emails"
-          value={analysis?.riskLevel === "High Risk" ? "1" : "0"}
-          change={analysis ? analysis.riskLevel : "No scan"}
-          danger={analysis?.riskLevel === "High Risk"}
-          warning={analysis?.riskLevel === "Medium Risk"}
-          success={analysis?.riskLevel === "Low Risk"}
+          value={String(highRiskEmails)}
+          change={scanHistory.length ? "Across history" : "No scans"}
+          danger={highRiskEmails > 0}
+          success={scanHistory.length > 0 && highRiskEmails === 0}
         />
 
         <StatCard
           icon={<ShieldCheck />}
           label="Threats blocked"
-          value={analysis?.riskLevel === "High Risk" ? "1" : "0"}
+          value={String(threatsBlocked)}
           change="Auto-Policy"
           success
         />
@@ -327,37 +333,6 @@ export default function Dashboard({
         </section>
       </div>
 
-      {/* THREAT RISK FACTORS & REMEDIATION PLAYBOOK SECTION */}
-      <RiskRemediesSection
-        analysis={analysis}
-        setActivePage={setActivePage}
-      />
-
-      <div className="bottom-strip">
-        <div>
-          <Server size={16} />
-          <span>Analysis API</span>
-          <strong>Operational</strong>
-        </div>
-
-        <div>
-          <Database size={16} />
-          <span>Forensic storage</span>
-          <strong>Ready</strong>
-        </div>
-
-        <div>
-          <LockKeyhole size={16} />
-          <span>Evidence integrity</span>
-          <strong>{analysis?.sha256 ? "SHA-256 Verified" : "Ready"}</strong>
-        </div>
-
-        <div>
-          <Activity size={16} />
-          <span>Analysis status</span>
-          <strong>{analyzing ? "Processing" : analysis ? "Completed" : "Waiting"}</strong>
-        </div>
-      </div>
     </>
   );
 }

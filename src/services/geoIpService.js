@@ -10,6 +10,14 @@
 // In-memory cache to prevent redundant lookups and respect rate limits
 const geoCache = new Map();
 
+function fetchWithTimeout(url, timeoutMs = 2000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  return fetch(url, { signal: controller.signal })
+    .finally(() => clearTimeout(timeoutId));
+}
+
 /**
  * Validates whether an IP is private, link-local, loopback, or reserved.
  */
@@ -118,7 +126,7 @@ export async function lookupGeoIP(ip) {
 
   // Provider 1: ipapi.co — best CORS support on Netlify/Vercel
   try {
-    const res = await fetch(`https://ipapi.co/${encodeURIComponent(cleanIp)}/json/`);
+    const res = await fetchWithTimeout(`https://ipapi.co/${encodeURIComponent(cleanIp)}/json/`, 2000);
     if (res.ok) {
       const data = await res.json();
       if (!data.error && data.country_name) {
@@ -159,7 +167,7 @@ export async function lookupGeoIP(ip) {
 
   // Provider 2: Direct high-precision call to ipwho.is
   try {
-    const res = await fetch(`https://ipwho.is/${encodeURIComponent(cleanIp)}`);
+    const res = await fetchWithTimeout(`https://ipwho.is/${encodeURIComponent(cleanIp)}`, 2000);
     if (res.ok) {
       const data = await res.json();
       if (data.success) {
@@ -200,7 +208,7 @@ export async function lookupGeoIP(ip) {
 
   // Provider 3: Local backend proxy /api/geoip (only works when Express server running)
   try {
-    const res = await fetch(`/api/geoip?ip=${encodeURIComponent(cleanIp)}`);
+    const res = await fetchWithTimeout(`/api/geoip?ip=${encodeURIComponent(cleanIp)}`, 2000);
     if (res.ok) {
       const data = await res.json();
       if (data && !data.error && data.country_name && data.country_name !== "Unknown Country" && (data.latitude !== 0 || data.longitude !== 0)) {
@@ -240,7 +248,7 @@ export async function lookupGeoIP(ip) {
 
   // Provider 4: FreeIPAPI fallback
   try {
-    const res = await fetch(`https://freeipapi.com/api/json/${encodeURIComponent(cleanIp)}`);
+    const res = await fetchWithTimeout(`https://freeipapi.com/api/json/${encodeURIComponent(cleanIp)}`, 2000);
     if (res.ok) {
       const data = await res.json();
       if (data.countryName) {
